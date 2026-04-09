@@ -1,0 +1,138 @@
+---
+title: "Introduction to Building AI Agents with Python"
+description: "Learn the fundamentals of creating autonomous AI agents using Python. This beginner-friendly guide covers agent architecture, tool use, and building your first agent from scratch."
+tier: "free"
+category: "ai"
+tags: ["python", "ai-agents", "langchain", "openai", "beginner"]
+difficulty: "beginner"
+publishedAt: "2025-03-15"
+updatedAt: "2025-03-15"
+author: "Algo Dojo"
+---
+
+## What Are AI Agents?
+
+AI agents are software systems that can **perceive their environment**, **make decisions**, and **take actions** to achieve specific goals. Unlike traditional automation scripts that follow rigid rules, AI agents leverage large language models (LLMs) to reason about problems and adapt their approach dynamically.
+
+Think of an AI agent as a smart assistant that can:
+
+- Break down complex tasks into smaller steps
+- Use tools (APIs, databases, web browsers) to gather information
+- Make decisions based on context
+- Learn from feedback and adjust its strategy
+
+## Agent Architecture Basics
+
+Every AI agent has three core components:
+
+### 1. The Brain (LLM)
+
+The language model serves as the reasoning engine. It processes inputs, generates plans, and decides which actions to take.
+
+### 2. Tools
+
+Tools are functions the agent can call to interact with the outside world. Examples include:
+
+- **Web search** — Find information online
+- **Code execution** — Run Python code
+- **API calls** — Interact with external services
+- **File operations** — Read and write files
+
+### 3. Memory
+
+Memory allows agents to maintain context across interactions. This can be:
+
+- **Short-term memory** — The current conversation context
+- **Long-term memory** — Persistent storage of past interactions and learned information
+
+## Building Your First Agent
+
+Let's build a simple AI agent using Python. We'll create an agent that can answer questions and perform web searches.
+
+### Prerequisites
+
+First, install the required packages:
+
+```bash
+pip install openai langchain langchain-openai
+```
+
+### Step 1: Set Up the LLM
+
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    model="gpt-4o",
+    temperature=0,
+)
+```
+
+### Step 2: Define Tools
+
+```python
+from langchain.tools import tool
+
+@tool
+def calculate(expression: str) -> str:
+    """Evaluate a mathematical expression and return the result."""
+    try:
+        result = eval(expression)  # In production, use a safe math parser
+        return str(result)
+    except Exception as e:
+        return f"Error: {e}"
+
+@tool
+def get_current_time() -> str:
+    """Get the current date and time."""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+tools = [calculate, get_current_time]
+```
+
+### Step 3: Create the Agent
+
+```python
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant. Use tools when needed."),
+    ("human", "{input}"),
+    ("placeholder", "{agent_scratchpad}"),
+])
+
+agent = create_tool_calling_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+```
+
+### Step 4: Run the Agent
+
+```python
+result = executor.invoke({
+    "input": "What is 42 * 17, and what time is it right now?"
+})
+
+print(result["output"])
+```
+
+The agent will automatically decide to use both the `calculate` and `get_current_time` tools to answer your question.
+
+## Key Concepts to Remember
+
+1. **Agents reason, not just execute** — They decide *what* to do, not just *how* to do it
+2. **Tools extend capabilities** — The more tools an agent has, the more it can accomplish
+3. **Prompts shape behavior** — The system prompt defines the agent's personality and constraints
+4. **Observation loops** — Agents observe tool outputs and decide whether to continue or stop
+
+## Next Steps
+
+Now that you understand the basics, try:
+
+- Adding more tools (web search, file I/O)
+- Implementing memory for multi-turn conversations
+- Adding error handling and retry logic
+- Exploring frameworks like CrewAI for multi-agent systems
+
+Check out our intermediate tutorial on [Automating Business Workflows with LangChain](/tutorials/automating-workflows-langchain) to see agents in action on real business problems.
