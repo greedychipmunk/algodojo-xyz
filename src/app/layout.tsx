@@ -19,6 +19,16 @@ export const metadata: Metadata = {
     locale: 'en_US',
     siteName: 'Algo Dojo',
   },
+  twitter: {
+    card: 'summary_large_image',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: 'https://algodojo.xyz',
+  },
 };
 
 export default function RootLayout({
