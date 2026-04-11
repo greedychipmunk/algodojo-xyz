@@ -166,34 +166,31 @@ pnpm start
 
 The server runs on port 3000 by default. Set the `PORT` environment variable to change it.
 
-### Docker
+### Docker Compose — Local Development
 
-```dockerfile
-FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-FROM base AS deps
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-FROM base AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN pnpm build
-
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
-EXPOSE 3000
-CMD ["node", "server.js"]
+```bash
+docker compose up --build
 ```
 
-> Note: For the Docker standalone build, enable `output: 'standalone'` in `next.config.ts`.
+This uses `Dockerfile.dev` with hot-reloading. Source files are bind-mounted so changes appear instantly. The dev server is available at [http://localhost:3000](http://localhost:3000).
+
+### Docker Compose — Production
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+This uses the multi-stage `Dockerfile` to produce a minimal standalone image (~150 MB). Includes a health check that polls `/` every 30 seconds. The production server is available at [http://localhost:3000](http://localhost:3000).
+
+To stop:
+
+```bash
+# Local
+docker compose down
+
+# Production
+docker compose -f docker-compose.prod.yml down
+```
 
 ## Design System
 
