@@ -32,7 +32,7 @@ export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "bg-accent text-white shadow-glow hover:bg-accent-hover hover:text-white",
+    "bg-accent text-bg-primary shadow-glow hover:bg-accent-hover hover:text-bg-primary",
   secondary:
     "border border-border bg-transparent text-text-primary hover:border-border-hover hover:bg-bg-tertiary",
   ghost:
