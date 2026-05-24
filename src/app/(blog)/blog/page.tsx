@@ -20,7 +20,7 @@ export default async function BlogPage() {
         <p className="mt-4 max-w-2xl text-text-secondary">
           Insights on AI, ML, and automation — from our team to your inbox.
         </p>
-        <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((post) => (
             <Link
               key={post.slug}
