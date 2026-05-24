@@ -1,157 +1,126 @@
-import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
-import { Section } from '@/components/ui/section';
-import { Badge } from '@/components/ui/badge';
-import { Breadcrumbs } from '@/components/ui/breadcrumbs';
-import { MdxContent } from '@/components/tutorials/mdx-content';
-import {
-  TableOfContents,
-  extractTocItems,
-} from '@/components/tutorials/table-of-contents';
-import { getTutorialBySlug, getTutorialSlugs } from '@/lib/tutorials';
+import { notFound } from "next/navigation";
+import { Container } from "@/components/ui/container";
+import { Badge } from "@/components/ui/badge";
+import { TableOfContents } from "@/components/tutorials/table-of-contents";
+import { getAllTutorials, getTutorialBySlug } from "@/lib/content";
+import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
-interface TutorialPageProps {
+interface TutorialDetailPageProps {
   params: Promise<{ slug: string }>;
 }
 
 export async function generateStaticParams() {
-  return getTutorialSlugs().map((slug) => ({ slug }));
+  const tutorials = await getAllTutorials();
+  return tutorials.map((t) => ({ slug: t.slug }));
 }
 
-export async function generateMetadata({ params }: TutorialPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: TutorialDetailPageProps) {
   const { slug } = await params;
-  const tutorial = getTutorialBySlug(slug);
+  const tutorial = await getTutorialBySlug(slug);
   if (!tutorial) return {};
 
-  return {
+  return generatePageMetadata({
     title: tutorial.title,
     description: tutorial.description,
-    openGraph: {
-      title: tutorial.title,
-      description: tutorial.description,
-      type: 'article',
-      publishedTime: tutorial.publishedAt,
-      modifiedTime: tutorial.updatedAt,
-      authors: [tutorial.author],
-      tags: tutorial.tags,
-    },
-  };
+    path: `/tutorials/${tutorial.slug}`,
+    type: "article",
+    publishedTime: tutorial.publishedAt,
+    modifiedTime: tutorial.updatedAt,
+  });
 }
 
-const difficultyColor = {
-  beginner: 'cyan' as const,
-  intermediate: 'teal' as const,
-  advanced: 'outline' as const,
-};
-
-export default async function TutorialPage({ params }: TutorialPageProps) {
+export default async function TutorialDetailPage({
+  params,
+}: TutorialDetailPageProps) {
   const { slug } = await params;
-  const tutorial = getTutorialBySlug(slug);
+  const tutorial = await getTutorialBySlug(slug);
 
   if (!tutorial) {
     notFound();
   }
 
-  const tocItems = extractTocItems(tutorial.content);
-
-  const jsonLd = [
-    {
-      '@context': 'https://schema.org',
-      '@type': 'Article',
-      headline: tutorial.title,
-      description: tutorial.description,
-      datePublished: tutorial.publishedAt,
-      dateModified: tutorial.updatedAt,
-      author: {
-        '@type': 'Organization',
-        name: tutorial.author,
-      },
-      publisher: {
-        '@type': 'Organization',
-        name: 'Algo Dojo, LLC',
-        url: 'https://algodojo.xyz',
-      },
-    },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'BreadcrumbList',
-      itemListElement: [
-        {
-          '@type': 'ListItem',
-          position: 1,
-          name: 'Home',
-          item: 'https://algodojo.xyz',
-        },
-        {
-          '@type': 'ListItem',
-          position: 2,
-          name: 'Tutorials',
-          item: 'https://algodojo.xyz/tutorials',
-        },
-        {
-          '@type': 'ListItem',
-          position: 3,
-          name: tutorial.title,
-          item: `https://algodojo.xyz/tutorials/${slug}`,
-        },
-      ],
-    },
-  ];
+  const tierVariant = tutorial.tier === "free" ? "success" : "accent";
+  const difficultyVariant =
+    tutorial.difficulty === "beginner"
+      ? "success"
+      : tutorial.difficulty === "intermediate"
+        ? "warning"
+        : "error";
 
   return (
-    <main>
+    <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "Home", href: "/" },
+            { name: "Tutorials", href: "/tutorials" },
+            { name: tutorial.title, href: `/tutorials/${tutorial.slug}` },
+          ]),
+        }}
       />
+      <article className="py-20 sm:py-28">
+        <Container>
+          <div className="lg:grid lg:grid-cols-[1fr_250px] lg:gap-12">
+            <div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={tierVariant}>{tutorial.tier}</Badge>
+                <Badge variant={difficultyVariant}>
+                  {tutorial.difficulty}
+                </Badge>
+                <Badge>{tutorial.category}</Badge>
+              </div>
+              <h1 className="mt-4 text-3xl font-bold sm:text-4xl lg:text-5xl">
+                {tutorial.title}
+              </h1>
+              <p className="mt-4 text-lg text-text-secondary">
+                {tutorial.description}
+              </p>
+              <div className="mt-4 flex items-center gap-4 text-sm text-text-muted">
+                <span>By {tutorial.author}</span>
+                <span>
+                  {new Date(tutorial.publishedAt).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </span>
+                <span>{tutorial.estimatedReadTime} min read</span>
+              </div>
 
-      <Section>
-        <Breadcrumbs
-          items={[
-            { label: 'Home', href: '/' },
-            { label: 'Tutorials', href: '/tutorials' },
-            { label: tutorial.title },
-          ]}
-        />
-
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <Badge variant={difficultyColor[tutorial.difficulty]}>{tutorial.difficulty}</Badge>
-          <Badge>{tutorial.category.toUpperCase()}</Badge>
-          {tutorial.tier === 'premium' && <Badge variant="outline">Premium</Badge>}
-        </div>
-
-        <h1 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-          {tutorial.title}
-        </h1>
-
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-500">
-          <span>By {tutorial.author}</span>
-          <span aria-hidden="true">&middot;</span>
-          <span>{tutorial.estimatedReadTime} min read</span>
-          <span aria-hidden="true">&middot;</span>
-          <time dateTime={tutorial.publishedAt}>
-            {new Date(tutorial.publishedAt).toLocaleDateString('en-US', {
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-          </time>
-        </div>
-      </Section>
-
-      <Section>
-        <div className="grid gap-12 lg:grid-cols-[1fr_280px]">
-          <article className="min-w-0">
-            <MdxContent source={tutorial.content} />
-          </article>
-
-          <aside className="hidden lg:block">
-            <div className="sticky top-24">
-              <TableOfContents items={tocItems} />
+              <div className="prose prose-invert mt-12 max-w-none">
+                <div dangerouslySetInnerHTML={{ __html: tutorial.content }} />
+              </div>
             </div>
-          </aside>
-        </div>
-      </Section>
-    </main>
+
+            <aside className="hidden lg:block">
+              <div className="sticky top-24">
+                <TableOfContents
+                  headings={extractHeadings(tutorial.content)}
+                />
+              </div>
+            </aside>
+          </div>
+        </Container>
+      </article>
+    </>
   );
+}
+
+function extractHeadings(
+  html: string,
+): Array<{ id: string; text: string; level: number }> {
+  const headingRegex = /<h([2-3])[^>]*id="([^"]*)"[^>]*>(.*?)<\/h[2-3]>/g;
+  const headings: Array<{ id: string; text: string; level: number }> = [];
+  let match;
+
+  while ((match = headingRegex.exec(html)) !== null) {
+    headings.push({
+      level: parseInt(match[1]),
+      id: match[2],
+      text: match[3].replace(/<[^>]*>/g, ""),
+    });
+  }
+
+  return headings;
 }

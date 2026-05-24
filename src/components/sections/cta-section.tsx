@@ -1,30 +1,36 @@
-import { Button } from '@/components/ui/button';
-import { Section } from '@/components/ui/section';
+import Link from "next/link";
 
-export function CtaSection() {
+interface CtaSectionProps {
+  title: string;
+  description: string;
+  buttonText: string;
+  buttonHref: string;
+}
+
+export function CtaSection({
+  title,
+  description,
+  buttonText,
+  buttonHref,
+}: CtaSectionProps) {
   return (
-    <Section>
-      <div className="relative overflow-hidden rounded-2xl border border-navy-700 bg-navy-900/50 px-6 py-16 text-center sm:px-12 sm:py-20">
-        <div className="absolute inset-0 -z-10">
-          <div className="absolute left-1/2 top-1/2 h-[300px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-500/5 blur-3xl" />
-        </div>
-
-        <h2 className="text-3xl font-bold text-white sm:text-4xl">
-          Ready to Optimize Your Workflows?
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
-          Book a free consultation to discover how agentic AI and automation
-          can transform your business processes.
-        </p>
-        <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-          <Button href="/contact" size="lg">
-            Book a Free Consultation
-          </Button>
-          <Button href="/services" variant="secondary" size="lg">
-            Learn More
-          </Button>
+    <section className="px-6 py-16 sm:px-8 lg:px-10">
+      <div className="mx-auto max-w-7xl overflow-hidden rounded-xl border border-border bg-gradient-to-r from-accent/20 via-accent-muted/20 to-accent-hover/10 p-8 shadow-glow sm:p-10 lg:p-12">
+        <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
+            {title}
+          </h2>
+          <p className="max-w-2xl text-base leading-7 text-text-secondary sm:text-lg">
+            {description}
+          </p>
+          <Link
+            href={buttonHref}
+            className="inline-flex items-center justify-center rounded-xl bg-accent px-6 py-3 text-sm font-semibold text-white shadow-glow transition-colors duration-200 hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+          >
+            {buttonText}
+          </Link>
         </div>
       </div>
-    </Section>
+    </section>
   );
 }

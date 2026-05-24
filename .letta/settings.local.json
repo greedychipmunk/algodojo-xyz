@@ -1,0 +1,17 @@
+{
+  "lastAgent": "agent-1bf3e499-4026-42e9-a32a-0b3f393f9c3e",
+  "sessionsByServer": {
+    "api.letta.com": {
+      "agentId": "agent-1bf3e499-4026-42e9-a32a-0b3f393f9c3e",
+      "conversationId": "default"
+    },
+    "local:/Users/dcblackhouse/.letta/lc-local-backend": {
+      "agentId": "agent-local-8a2f99ef-3021-447f-91ec-6ec971edb703",
+      "conversationId": "default"
+    }
+  },
+  "lastSession": {
+    "agentId": "agent-1bf3e499-4026-42e9-a32a-0b3f393f9c3e",
+    "conversationId": "default"
+  }
+}

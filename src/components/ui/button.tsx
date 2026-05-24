@@ -1,54 +1,102 @@
-import Link from 'next/link';
+import Link from "next/link";
+import type {
+  ButtonHTMLAttributes,
+  ComponentPropsWithoutRef,
+  ReactNode,
+} from "react";
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline';
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonVariant = "primary" | "secondary" | "ghost";
+type ButtonSize = "sm" | "md" | "lg";
 
-interface ButtonProps {
-  href?: string;
+type ButtonBaseProps = {
   variant?: ButtonVariant;
   size?: ButtonSize;
-  children: React.ReactNode;
   className?: string;
-  type?: 'button' | 'submit';
-  onClick?: () => void;
+  children: ReactNode;
+};
+
+type ButtonAsButtonProps = ButtonBaseProps &
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "className"> & {
+    href?: undefined;
+  };
+
+type ButtonAsLinkProps = ButtonBaseProps &
+  Omit<
+    ComponentPropsWithoutRef<typeof Link>,
+    "children" | "className" | "href"
+  > & {
+    href: string;
+  };
+
+export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
+
+const variantClasses: Record<ButtonVariant, string> = {
+  primary:
+    "bg-accent text-white shadow-glow hover:bg-accent-hover hover:text-white",
+  secondary:
+    "border border-border bg-transparent text-text-primary hover:border-border-hover hover:bg-bg-tertiary",
+  ghost:
+    "bg-transparent text-text-secondary hover:bg-bg-tertiary hover:text-text-primary",
+};
+
+const sizeClasses: Record<ButtonSize, string> = {
+  sm: "h-9 px-3 text-sm",
+  md: "h-11 px-4 text-sm",
+  lg: "h-12 px-6 text-base",
+};
+
+const baseClasses =
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary disabled:pointer-events-none disabled:opacity-50";
+
+function getButtonClasses(
+  variant: ButtonVariant,
+  size: ButtonSize,
+  className?: string,
+) {
+  return [baseClasses, variantClasses[variant], sizeClasses[size], className]
+    .filter(Boolean)
+    .join(" ");
 }
 
-const variantStyles: Record<ButtonVariant, string> = {
-  primary:
-    'bg-cyan-500 text-white hover:bg-cyan-400 shadow-lg shadow-cyan-500/25',
-  secondary:
-    'bg-navy-700 text-white hover:bg-navy-600',
-  outline:
-    'border border-navy-600 text-slate-300 hover:border-cyan-500 hover:text-cyan-400',
-};
+export function Button(props: ButtonProps) {
+  if ("href" in props && props.href) {
+    const linkProps = props as ButtonAsLinkProps;
+    const {
+      href,
+      variant = "primary",
+      size = "md",
+      className,
+      children,
+      ...rest
+    } = linkProps;
+    const classes = getButtonClasses(variant, size, className);
 
-const sizeStyles: Record<ButtonSize, string> = {
-  sm: 'px-4 py-2 text-sm',
-  md: 'px-6 py-3 text-sm',
-  lg: 'px-8 py-4 text-base',
-};
-
-export function Button({
-  href,
-  variant = 'primary',
-  size = 'md',
-  children,
-  className = '',
-  type = 'button',
-  onClick,
-}: ButtonProps) {
-  const styles = `inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-colors ${variantStyles[variant]} ${sizeStyles[size]} ${className}`;
-
-  if (href) {
     return (
-      <Link href={href} className={styles}>
+      <Link className={classes} href={href} {...rest}>
         {children}
       </Link>
     );
   }
 
+  const buttonVariantProps = props as ButtonAsButtonProps;
+  const {
+    variant = "primary",
+    size = "md",
+    className,
+    children,
+    type: rawButtonType,
+    ...buttonProps
+  } = buttonVariantProps;
+  const resolvedButtonType: "button" | "submit" | "reset" =
+    (rawButtonType as "button" | "submit" | "reset" | undefined) ?? "button";
+  const classes = getButtonClasses(variant, size, className);
+  const resolvedButtonProps = buttonProps as Omit<
+    ButtonHTMLAttributes<HTMLButtonElement>,
+    "children" | "className"
+  >;
+
   return (
-    <button type={type} onClick={onClick} className={styles}>
+    <button className={classes} type={resolvedButtonType} {...resolvedButtonProps}>
       {children}
     </button>
   );

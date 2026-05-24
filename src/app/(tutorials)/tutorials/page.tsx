@@ -1,69 +1,30 @@
-import type { Metadata } from 'next';
-import { Suspense } from 'react';
-import { Section } from '@/components/ui/section';
-import { getAllTutorials } from '@/lib/tutorials';
-import { TutorialCard } from '@/components/tutorials/tutorial-card';
-import { TutorialFilters } from '@/components/tutorials/tutorial-filters';
+import { Container } from "@/components/ui/container";
+import { TutorialGrid } from "@/components/tutorials/tutorial-grid";
+import { getAllTutorials } from "@/lib/content";
+import { generatePageMetadata } from "@/lib/metadata";
 
-export const metadata: Metadata = {
-  title: 'Tutorials',
+export const metadata = generatePageMetadata({
+  title: "Tutorials",
   description:
-    'Free and premium tutorials on AI agents, machine learning, and automation. Learn from beginner to advanced with hands-on code examples.',
-};
+    "Free and premium tutorials on AI, ML, and automation. Learn to build intelligent systems from scratch.",
+  path: "/tutorials",
+});
 
-interface TutorialsPageProps {
-  searchParams: Promise<{
-    category?: string;
-    difficulty?: string;
-    tier?: string;
-  }>;
-}
-
-export default async function TutorialsPage({ searchParams }: TutorialsPageProps) {
-  const params = await searchParams;
-  const allTutorials = getAllTutorials();
-
-  const filtered = allTutorials.filter((t) => {
-    if (params.category && t.category !== params.category) return false;
-    if (params.difficulty && t.difficulty !== params.difficulty) return false;
-    if (params.tier && t.tier !== params.tier) return false;
-    return true;
-  });
+export default async function TutorialsPage() {
+  const tutorials = await getAllTutorials();
 
   return (
-    <main>
-      <Section>
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-widest text-cyan-400">Learn</p>
-          <h1 className="mt-2 text-4xl font-bold text-white sm:text-5xl">Tutorials</h1>
-          <p className="mt-4 text-lg text-slate-400">
-            Practical guides on AI, machine learning, and automation — from fundamentals to
-            production-ready patterns.
-          </p>
+    <section className="py-20 sm:py-28">
+      <Container>
+        <h1 className="text-3xl font-bold sm:text-4xl">Tutorials</h1>
+        <p className="mt-4 max-w-2xl text-text-secondary">
+          Hands-on guides for building with AI, ML, and automation. From
+          beginner concepts to advanced implementations.
+        </p>
+        <div className="mt-12">
+          <TutorialGrid tutorials={tutorials} />
         </div>
-      </Section>
-
-      <Section>
-        <div className="mb-8">
-          <Suspense fallback={null}>
-            <TutorialFilters />
-          </Suspense>
-        </div>
-
-        {filtered.length > 0 ? (
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((tutorial) => (
-              <TutorialCard key={tutorial.slug} tutorial={tutorial} />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-navy-700 bg-navy-900/50 p-12 text-center">
-            <p className="text-lg text-slate-400">
-              No tutorials match your filters. Try adjusting your selection.
-            </p>
-          </div>
-        )}
-      </Section>
-    </main>
+      </Container>
+    </section>
   );
 }

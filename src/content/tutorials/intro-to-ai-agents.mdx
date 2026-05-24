@@ -1,0 +1,64 @@
+---
+title: "Introduction to AI Agents"
+slug: "intro-to-ai-agents"
+description: "Learn what AI agents are, how they reason, and the basic architecture behind them."
+tier: "free"
+category: "ai"
+difficulty: "beginner"
+estimatedReadTime: 8
+publishedAt: "2026-04-18T09:00:00.000Z"
+updatedAt: "2026-04-18T09:00:00.000Z"
+author: "Algo Dojo"
+tags:
+  - "AI agents"
+  - "agent architecture"
+  - "LLMs"
+  - "workflow design"
+---
+
+# Introduction to AI Agents
+
+AI agents are systems that can observe their environment, reason about what to do next, and take actions toward a goal. Instead of producing a single response, an agent often chains together multiple steps, using tools, memory, and feedback loops to complete a task.
+
+## What makes an agent different?
+
+A regular chatbot responds to a prompt. An AI agent can plan, call tools, evaluate results, and continue until it reaches an objective. That makes agents useful for workflows like research, support triage, content drafting, and data retrieval.
+
+### Core building blocks
+
+Most agents include a few common parts:
+
+- A model that can reason over text or structured inputs
+- A set of tools the model can call
+- Short-term memory for the current task
+- Guardrails that keep actions within safe boundaries
+
+## A simple architecture
+
+At a high level, the loop looks like this:
+
+1. Receive a goal from the user.
+2. Decide whether more information is needed.
+3. Call a tool or make a plan.
+4. Evaluate the result.
+5. Continue until the task is complete.
+
+```python
+from typing import Any
+
+
+def run_agent_step(goal: str, context: dict[str, Any]) -> str:
+    if "status" not in context:
+        context["status"] = "planning"
+
+    if context["status"] == "planning":
+        context["status"] = "tool_call"
+        return f"Planning next step for: {goal}"
+
+    context["status"] = "done"
+    return f"Finished: {goal}"
+```
+
+## Why this matters
+
+When you understand the architecture, it becomes easier to decide where to add retrieval, when to use tools, and how to keep the system reliable. In the next tutorial, we'll take this basic pattern and turn it into something more practical.
