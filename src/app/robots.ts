@@ -1,13 +1,9 @@
-import type { MetadataRoute } from 'next';
+import type { MetadataRoute } from "next";
+import { SITE_METADATA } from "@/lib/constants";
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: [
-      {
-        userAgent: '*',
-        allow: '/',
-      },
-    ],
-    sitemap: 'https://algodojo.xyz/sitemap.xml',
+    rules: { userAgent: "*", allow: "/" },
+    sitemap: `${SITE_METADATA.siteUrl}/sitemap.xml`,
   };
 }

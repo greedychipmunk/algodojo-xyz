@@ -1,107 +1,78 @@
-import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
-import { Section } from '@/components/ui/section';
-import { Badge } from '@/components/ui/badge';
-import { Breadcrumbs } from '@/components/ui/breadcrumbs';
-import { MdxContent } from '@/components/tutorials/mdx-content';
-import { getBlogPostBySlug, getBlogSlugs } from '@/lib/blog';
+import { notFound } from "next/navigation";
+import { Container } from "@/components/ui/container";
+import { getAllBlogPosts, getBlogPostBySlug } from "@/lib/content";
+import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
 interface BlogPostPageProps {
   params: Promise<{ slug: string }>;
 }
 
 export async function generateStaticParams() {
-  return getBlogSlugs().map((slug) => ({ slug }));
+  const posts = await getAllBlogPosts();
+  return posts.map((p) => ({ slug: p.slug }));
 }
 
-export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: BlogPostPageProps) {
   const { slug } = await params;
-  const post = getBlogPostBySlug(slug);
+  const post = await getBlogPostBySlug(slug);
   if (!post) return {};
 
-  return {
+  return generatePageMetadata({
     title: post.title,
     description: post.description,
-    openGraph: {
-      title: post.title,
-      description: post.description,
-      type: 'article',
-      publishedTime: post.publishedAt,
-      modifiedTime: post.updatedAt,
-      authors: [post.author],
-      tags: post.tags,
-    },
-  };
+    path: `/blog/${post.slug}`,
+    type: "article",
+    publishedTime: post.publishedAt,
+    modifiedTime: post.updatedAt,
+  });
 }
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params;
-  const post = getBlogPostBySlug(slug);
+  const post = await getBlogPostBySlug(slug);
 
   if (!post) {
     notFound();
   }
 
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Article',
-    headline: post.title,
-    description: post.description,
-    datePublished: post.publishedAt,
-    dateModified: post.updatedAt,
-    author: {
-      '@type': 'Organization',
-      name: post.author,
-    },
-    publisher: {
-      '@type': 'Organization',
-      name: 'Algo Dojo, LLC',
-      url: 'https://algodojo.xyz',
-    },
-  };
-
   return (
-    <main>
+    <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "Home", href: "/" },
+            { name: "Blog", href: "/blog" },
+            { name: post.title, href: `/blog/${post.slug}` },
+          ]),
+        }}
       />
+      <article className="py-20 sm:py-28">
+        <Container>
+          <div className="mx-auto max-w-3xl">
+            <h1 className="text-3xl font-bold sm:text-4xl lg:text-5xl">
+              {post.title}
+            </h1>
+            <p className="mt-4 text-lg text-text-secondary">
+              {post.description}
+            </p>
+            <div className="mt-4 flex items-center gap-4 text-sm text-text-muted">
+              <span>By {post.author}</span>
+              <span>
+                {new Date(post.publishedAt).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </span>
+            </div>
 
-      <Section>
-        <Breadcrumbs
-          items={[
-            { label: 'Home', href: '/' },
-            { label: 'Blog', href: '/blog' },
-            { label: post.title },
-          ]}
-        />
-
-        <div className="mb-6 flex flex-wrap gap-2">
-          {post.tags.map((tag) => (
-            <Badge key={tag}>{tag}</Badge>
-          ))}
-        </div>
-
-        <h1 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">{post.title}</h1>
-
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-500">
-          <span>By {post.author}</span>
-          <span aria-hidden="true">&middot;</span>
-          <time dateTime={post.publishedAt}>
-            {new Date(post.publishedAt).toLocaleDateString('en-US', {
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-          </time>
-        </div>
-      </Section>
-
-      <Section>
-        <article className="mx-auto max-w-3xl">
-          <MdxContent source={post.content} />
-        </article>
-      </Section>
-    </main>
+            <div className="prose prose-invert mt-12 max-w-none">
+              <div dangerouslySetInnerHTML={{ __html: post.content }} />
+            </div>
+          </div>
+        </Container>
+      </article>
+    </>
   );
 }

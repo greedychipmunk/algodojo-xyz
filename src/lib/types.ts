@@ -2,10 +2,10 @@ export interface Tutorial {
   title: string;
   slug: string;
   description: string;
-  tier: 'free' | 'premium';
-  category: 'ai' | 'ml' | 'automation';
+  tier: "free" | "premium";
+  category: "ai" | "ml" | "automation";
   tags: string[];
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  difficulty: "beginner" | "intermediate" | "advanced";
   estimatedReadTime: number;
   publishedAt: string;
   updatedAt: string;
@@ -13,34 +13,32 @@ export interface Tutorial {
   content: string;
 }
 
-export interface TutorialFrontmatter {
-  title: string;
-  description: string;
-  tier: 'free' | 'premium';
-  category: 'ai' | 'ml' | 'automation';
-  tags: string[];
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  publishedAt: string;
-  updatedAt: string;
-  author: string;
-}
-
 export interface BlogPost {
   title: string;
   slug: string;
   description: string;
+  tags: string[];
   publishedAt: string;
   updatedAt: string;
   author: string;
-  tags: string[];
   content: string;
 }
 
-export interface BlogFrontmatter {
+export interface Service {
   title: string;
   description: string;
-  publishedAt: string;
-  updatedAt: string;
-  author: string;
-  tags: string[];
+  icon: string;
+  features: string[];
+}
+
+export interface NavItem {
+  label: string;
+  href: string;
+}
+
+export interface SiteMetadata {
+  title: string;
+  description: string;
+  siteUrl: string;
+  ogImage: string;
 }

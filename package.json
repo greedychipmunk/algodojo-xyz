@@ -6,16 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "dependencies": {
-    "geist": "^1.7.0",
-    "gray-matter": "^4.0.3",
-    "next": "16.2.3",
-    "next-mdx-remote": "^6.0.0",
+    "@mdx-js/loader": "^3",
+    "@mdx-js/react": "^3",
+    "@next/mdx": "16.2.6",
+    "gray-matter": "^4",
+    "next": "16.2.6",
+    "next-mdx-remote": "^5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "reading-time": "^1.5.0"
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -23,10 +26,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.3",
-    "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.8.1",
+    "eslint-config-next": "16.2.6",
+    "prettier": "^3",
+    "prettier-plugin-tailwindcss": "^0.6",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "packageManager": "pnpm@10.18.3+sha1.0202a20aaa3d7ba8bc29b50d95efe1a34dd95773"
 }

@@ -1,157 +1,118 @@
-import type { Metadata } from 'next';
-import { Section } from '@/components/ui/section';
-import { Card } from '@/components/ui/card';
+import { Container } from "@/components/ui/container";
+import { SectionHeading } from "@/components/ui/section-heading";
+import { CtaSection } from "@/components/sections/cta-section";
+import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
-export const metadata: Metadata = {
-  title: 'About',
+export const metadata = generatePageMetadata({
+  title: "About",
   description:
-    'Learn about Algo Dojo — an AI/ML consulting firm helping businesses optimize workflows through agentic AI and automation.',
-};
+    "Learn about Algo Dojo — our mission, values, and the team behind the AI/ML consulting and education platform.",
+  path: "/about",
+});
 
-const values = [
+const VALUES = [
   {
-    title: 'Results Over Hype',
+    title: "Practical Over Theoretical",
     description:
-      'We focus on measurable business outcomes, not flashy demos. Every solution we build is designed to deliver concrete ROI.',
+      "We focus on solutions that ship. Every recommendation we make is grounded in real-world feasibility and measurable outcomes.",
   },
   {
-    title: 'Practical AI',
+    title: "Transparency First",
     description:
-      'We apply AI where it makes sense. Not every problem needs a neural network — we choose the right tool for the job.',
+      "No black boxes. We explain our reasoning, share our methods, and make sure you understand what's happening under the hood.",
   },
   {
-    title: 'Knowledge Sharing',
+    title: "Continuous Learning",
     description:
-      'Our tutorials and blog exist because we believe in making AI accessible. Rising tides lift all boats.',
+      "AI moves fast. We stay on the cutting edge so you don't have to — and we teach what we learn along the way.",
   },
   {
-    title: 'Client Partnership',
+    title: "Outcome-Driven",
     description:
-      'We work alongside your team, transferring knowledge at every step. Our goal is your independence, not your dependence.',
-  },
-];
-
-const team = [
-  {
-    name: 'Coming Soon',
-    role: 'Founding Team',
-    description: 'We are building our team page. Check back soon for team member profiles.',
+      "Technology is a means, not an end. We measure success by the impact on your business, not by the sophistication of the model.",
   },
 ];
 
 export default function AboutPage() {
   return (
-    <main>
-      <Section>
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-widest text-cyan-400">
-            About Us
-          </p>
-          <h1 className="mt-2 text-4xl font-bold text-white sm:text-5xl">
-            Making AI Work for Real Businesses
-          </h1>
-          <p className="mt-6 text-lg text-slate-400">
-            Algo Dojo was founded on a simple premise: AI should create measurable value, not just
-            impressive demos. We combine deep technical expertise with practical business
-            understanding to deliver automation that actually works.
-          </p>
-        </div>
-      </Section>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "Home", href: "/" },
+            { name: "About", href: "/about" },
+          ]),
+        }}
+      />
+      <section className="py-20 sm:py-28">
+        <Container>
+          <SectionHeading
+            title="About Algo Dojo"
+            subtitle="AI/ML consulting and education — built on the belief that intelligent automation should be accessible to every business."
+            centered
+          />
 
-      <Section className="bg-navy-900/30">
-        <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="text-3xl font-bold text-white">Our Story</h2>
-            <div className="mt-6 space-y-4 text-slate-300">
-              <p>
-                We started Algo Dojo because we saw a gap between AI&apos;s potential and how most
-                businesses were actually using it. Companies were spending millions on AI
-                initiatives that never made it past the proof-of-concept stage.
-              </p>
-              <p>
-                The problem wasn&apos;t the technology — it was the approach. Teams were chasing
-                the latest models and frameworks without first understanding their workflows,
-                data, and actual business needs.
-              </p>
-              <p>
-                We take a different approach. We start with your business processes, identify
-                where AI can have the biggest impact, and build solutions that integrate
-                seamlessly into how your team already works.
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-navy-700 bg-navy-900/50 p-8">
-            <h3 className="text-xl font-bold text-white">Our Mission</h3>
-            <p className="mt-4 text-lg text-slate-300">
-              To help businesses unlock the full potential of AI and automation — delivering
-              practical, production-ready solutions that create measurable value from day one.
+          <div className="mt-16 max-w-3xl mx-auto space-y-6 text-text-secondary">
+            <p>
+              Algo Dojo was founded on a simple observation: most businesses
+              have workflows that are ripe for AI-driven optimization, but
+              lack the expertise to identify and implement the right
+              solutions.
             </p>
-            <div className="mt-8 grid grid-cols-2 gap-6">
-              <div>
-                <p className="text-3xl font-bold text-cyan-400">50+</p>
-                <p className="mt-1 text-sm text-slate-400">Projects Delivered</p>
-              </div>
-              <div>
-                <p className="text-3xl font-bold text-cyan-400">10x</p>
-                <p className="mt-1 text-sm text-slate-400">Avg Efficiency Gain</p>
-              </div>
-            </div>
+            <p>
+              We bridge that gap. Our team examines your existing processes,
+              identifies where agentic AI and ML can deliver measurable
+              improvements, and builds the automation systems that make it
+              happen.
+            </p>
+            <p>
+              Alongside consulting, we provide free and premium tutorials on
+              AI, ML, and automation — serving as both a lead generation
+              channel and a standalone educational platform for developers
+              and technical leaders who want to build these capabilities
+              themselves.
+            </p>
           </div>
-        </div>
-      </Section>
+        </Container>
+      </section>
 
-      <Section>
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-white">Our Values</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-slate-400">
-            The principles that guide everything we do.
-          </p>
-        </div>
-
-        <div className="mt-12 grid gap-8 sm:grid-cols-2">
-          {values.map((value) => (
-            <Card key={value.title}>
-              <h3 className="text-lg font-semibold text-white">{value.title}</h3>
-              <p className="mt-2 text-sm text-slate-400">{value.description}</p>
-            </Card>
-          ))}
-        </div>
-      </Section>
-
-      <Section className="bg-navy-900/30">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-white">Our Team</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-slate-400">
-            A team of engineers, researchers, and strategists passionate about practical AI.
-          </p>
-        </div>
-
-        <div className="mt-12 flex justify-center">
-          {team.map((member) => (
-            <Card key={member.name} className="max-w-sm text-center">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-navy-800">
-                <svg
-                  className="h-10 w-10 text-slate-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-                  />
-                </svg>
+      <section className="py-20 bg-bg-secondary">
+        <Container>
+          <SectionHeading title="Our Values" centered />
+          <div className="mt-16 grid gap-8 sm:grid-cols-2">
+            {VALUES.map((value) => (
+              <div
+                key={value.title}
+                className="rounded-xl border border-border bg-bg-card p-8"
+              >
+                <h3 className="text-xl font-semibold text-text-primary">
+                  {value.title}
+                </h3>
+                <p className="mt-3 text-text-secondary">
+                  {value.description}
+                </p>
               </div>
-              <h3 className="mt-4 font-semibold text-white">{member.name}</h3>
-              <p className="text-sm text-cyan-400">{member.role}</p>
-              <p className="mt-2 text-sm text-slate-400">{member.description}</p>
-            </Card>
-          ))}
-        </div>
-      </Section>
-    </main>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      <section className="py-20 sm:py-28">
+        <Container>
+          <SectionHeading title="The Team" centered />
+          <div className="mt-16 text-center text-text-muted">
+            <p>Team profiles coming soon.</p>
+          </div>
+        </Container>
+      </section>
+
+      <CtaSection
+        title="Want to Work With Us?"
+        description="We're always looking for interesting problems to solve."
+        buttonText="Get in Touch"
+        buttonHref="/contact"
+      />
+    </>
   );
 }

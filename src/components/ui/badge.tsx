@@ -1,23 +1,45 @@
-type BadgeVariant = 'default' | 'cyan' | 'teal' | 'outline';
+import type { ReactNode } from "react";
 
-interface BadgeProps {
-  children: React.ReactNode;
+type BadgeVariant = "default" | "accent" | "success" | "warning" | "error";
+type BadgeSize = "sm" | "md";
+
+type BadgeProps = {
   variant?: BadgeVariant;
-}
-
-const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-navy-700 text-slate-300',
-  cyan: 'bg-cyan-500/10 text-cyan-400',
-  teal: 'bg-teal-500/10 text-teal-400',
-  outline: 'border border-navy-600 text-slate-400',
+  size?: BadgeSize;
+  children: ReactNode;
+  className?: string;
 };
 
-export function Badge({ children, variant = 'default' }: BadgeProps) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${variantStyles[variant]}`}
-    >
-      {children}
-    </span>
-  );
+const variantClasses: Record<BadgeVariant, string> = {
+  default: "border border-border bg-bg-tertiary text-text-secondary",
+  accent: "border border-transparent bg-accent/15 text-accent",
+  success: "border border-transparent bg-success/15 text-success",
+  warning: "border border-transparent bg-warning/15 text-warning",
+  error: "border border-transparent bg-error/15 text-error",
+};
+
+const sizeClasses: Record<BadgeSize, string> = {
+  sm: "px-2 py-0.5 text-[11px]",
+  md: "px-2.5 py-1 text-xs",
+};
+
+const baseClasses =
+  "inline-flex items-center rounded-full font-medium leading-none";
+
+export function Badge({
+  variant = "default",
+  size = "md",
+  children,
+  className,
+}: BadgeProps) {
+  const classes = [
+    baseClasses,
+    variantClasses[variant],
+    sizeClasses[size],
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return <span className={classes}>{children}</span>;
 }

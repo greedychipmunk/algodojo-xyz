@@ -1,49 +1,47 @@
-import type { Metadata } from 'next';
-import { GeistSans } from 'geist/font/sans';
-import { GeistMono } from 'geist/font/mono';
-import { Header } from '@/components/layout/header';
-import { Footer } from '@/components/layout/footer';
-import { SkipToContent } from '@/components/layout/skip-to-content';
-import './globals.css';
+import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
+import { Header } from "@/components/layout/header";
+import { Footer } from "@/components/layout/footer";
+import { SITE_METADATA } from "@/lib/constants";
+import { organizationJsonLd } from "@/lib/metadata";
+import "@/styles/globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: {
-    default: 'Algo Dojo — AI/ML Consulting & Automation',
-    template: '%s | Algo Dojo',
-  },
-  description:
-    'Algo Dojo helps businesses optimize workflows with agentic AI, machine learning, and automation. Free tutorials and expert consulting.',
-  metadataBase: new URL('https://algodojo.xyz'),
-  openGraph: {
-    type: 'website',
-    locale: 'en_US',
-    siteName: 'Algo Dojo',
-  },
-  twitter: {
-    card: 'summary_large_image',
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
-  alternates: {
-    canonical: 'https://algodojo.xyz',
-  },
+  title: SITE_METADATA.title,
+  description: SITE_METADATA.description,
+  metadataBase: new URL(SITE_METADATA.siteUrl),
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">
-        <SkipToContent />
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: organizationJsonLd(),
+          }}
+        />
+      </head>
+      <body className="min-h-screen bg-bg-primary font-sans text-text-primary antialiased">
         <Header />
-        <div id="main-content" className="flex flex-1 flex-col">
-          {children}
-        </div>
+        <main id="main-content">{children}</main>
         <Footer />
       </body>
     </html>
