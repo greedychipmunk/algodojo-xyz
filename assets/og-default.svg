@@ -1,0 +1,41 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c0a09"/>
+      <stop offset="1" stop-color="#1c1917"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(980 120) rotate(120) scale(520)">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#44403c" fill-opacity="0.5"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Enso-style ring mark with code brackets -->
+  <g transform="translate(120 120)">
+    <circle cx="44" cy="44" r="40" fill="none" stroke="#f59e0b" stroke-width="7"
+      stroke-linecap="round" stroke-dasharray="226 40" transform="rotate(35 44 44)"/>
+    <text x="44" y="60" font-family="Menlo, monospace" font-size="38" font-weight="700"
+      fill="#fafaf9" text-anchor="middle">{ }</text>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="120" y="350" font-family="Helvetica, Arial, sans-serif" font-size="104" font-weight="700"
+    fill="#fafaf9" letter-spacing="-2">Algo <tspan fill="#f59e0b">Dojo</tspan></text>
+
+  <!-- Tagline -->
+  <text x="124" y="420" font-family="Helvetica, Arial, sans-serif" font-size="38" font-weight="400"
+    fill="#a8a29e">AI / ML Consulting &amp; Education</text>
+
+  <!-- Footer -->
+  <text x="124" y="548" font-family="Menlo, monospace" font-size="28" font-weight="500"
+    fill="#78716c" letter-spacing="2">algodojo.xyz</text>
+  <rect x="124" y="470" width="120" height="4" rx="2" fill="#f59e0b"/>
+</svg>
