@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# letta
+/.letta/
+
 # production
 /build
 
