@@ -14,7 +14,7 @@ export function SectionHeading({
 
   return (
     <div className={[
-      "flex max-w-4xl flex-col gap-4",
+      "flex w-full flex-col gap-4",
       alignmentClasses,
     ].join(" ")}
     >
