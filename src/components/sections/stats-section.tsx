@@ -2,17 +2,17 @@ import { Container } from "@/components/ui/container";
 
 const STATS = [
   {
-    value: "50+",
+    value: "15+",
     label: "Workflows Optimized",
   },
   {
     value: "3x",
     label: "Avg Efficiency Gain",
   },
-  {
-    value: "100+",
-    label: "Tutorials Published",
-  },
+  // {
+  //   value: "100+",
+  //   label: "Tutorials Published",
+  // },
   {
     value: "99.9%",
     label: "Uptime",

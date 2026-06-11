@@ -98,15 +98,6 @@ export default function AboutPage() {
         </Container>
       </section>
 
-      <section className="py-20 sm:py-28">
-        <Container>
-          <SectionHeading title="The Team" centered />
-          <div className="mt-16 text-center text-text-muted">
-            <p>Team profiles coming soon.</p>
-          </div>
-        </Container>
-      </section>
-
       <CtaSection
         title="Want to Work With Us?"
         description="We're always looking for interesting problems to solve."
