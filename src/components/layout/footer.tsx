@@ -8,7 +8,7 @@ const FOOTER_LINKS = {
     { label: "Process Automation", href: "/services" },
   ],
   resources: [
-    { label: "Tutorials", href: "/tutorials" },
+    // { label: "Tutorials", href: "/tutorials" },
     { label: "Blog", href: "/blog" },
     { label: "About", href: "/about" },
     { label: "Contact", href: "/contact" },
