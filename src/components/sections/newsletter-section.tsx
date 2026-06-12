@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
-import { initialNewsletterState, subscribeNewsletter } from "@/app/actions";
+import { subscribeNewsletter } from "@/app/actions";
+import { initialNewsletterState } from "@/lib/form-state";
 import { Container } from "@/components/ui/container";
 
 export function NewsletterSection() {

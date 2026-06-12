@@ -5,14 +5,8 @@ import {
   isHoneypotTriggered,
   validateNewsletterForm,
 } from "@/lib/forms";
+import type { NewsletterFormState } from "@/lib/form-state";
 import { sendTelegramMessage } from "@/lib/telegram";
-
-export interface NewsletterFormState {
-  status: "idle" | "success" | "error";
-  message?: string;
-}
-
-export const initialNewsletterState: NewsletterFormState = { status: "idle" };
 
 export async function subscribeNewsletter(
   _prevState: NewsletterFormState,
