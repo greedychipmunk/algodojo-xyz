@@ -21,6 +21,7 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
     title: post.title,
     description: post.description,
     path: `/blog/${post.slug}`,
+    ogEyebrow: "Blog",
     type: "article",
     publishedTime: post.publishedAt,
     modifiedTime: post.updatedAt,
@@ -53,10 +54,10 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             <h1 className="text-3xl font-bold sm:text-4xl lg:text-5xl">
               {post.title}
             </h1>
-            <p className="mt-4 text-lg text-text-secondary">
+            <p className="text-text-secondary mt-4 text-lg">
               {post.description}
             </p>
-            <div className="mt-4 flex items-center gap-4 text-sm text-text-muted">
+            <div className="text-text-muted mt-4 flex items-center gap-4 text-sm">
               <span>By {post.author}</span>
               <span>
                 {new Date(post.publishedAt).toLocaleDateString("en-US", {
