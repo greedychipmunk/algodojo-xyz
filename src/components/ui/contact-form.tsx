@@ -1,10 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
-import {
-  initialContactState,
-  submitContact,
-} from "@/app/(marketing)/contact/actions";
+import { submitContact } from "@/app/(marketing)/contact/actions";
+import { initialContactState } from "@/lib/form-state";
 import { Button } from "@/components/ui/button";
 
 export function ContactForm() {

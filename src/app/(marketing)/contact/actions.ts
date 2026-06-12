@@ -6,15 +6,8 @@ import {
   validateContactForm,
   type ContactInput,
 } from "@/lib/forms";
+import type { ContactFormState } from "@/lib/form-state";
 import { sendTelegramMessage } from "@/lib/telegram";
-
-export interface ContactFormState {
-  status: "idle" | "success" | "error";
-  message?: string;
-  fieldErrors?: Partial<Record<keyof ContactInput, string>>;
-}
-
-export const initialContactState: ContactFormState = { status: "idle" };
 
 export async function submitContact(
   _prevState: ContactFormState,
