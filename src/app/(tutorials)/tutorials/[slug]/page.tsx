@@ -23,6 +23,7 @@ export async function generateMetadata({ params }: TutorialDetailPageProps) {
     title: tutorial.title,
     description: tutorial.description,
     path: `/tutorials/${tutorial.slug}`,
+    ogEyebrow: "Tutorial",
     type: "article",
     publishedTime: tutorial.publishedAt,
     modifiedTime: tutorial.updatedAt,
@@ -65,18 +66,16 @@ export default async function TutorialDetailPage({
             <div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={tierVariant}>{tutorial.tier}</Badge>
-                <Badge variant={difficultyVariant}>
-                  {tutorial.difficulty}
-                </Badge>
+                <Badge variant={difficultyVariant}>{tutorial.difficulty}</Badge>
                 <Badge>{tutorial.category}</Badge>
               </div>
               <h1 className="mt-4 text-3xl font-bold sm:text-4xl lg:text-5xl">
                 {tutorial.title}
               </h1>
-              <p className="mt-4 text-lg text-text-secondary">
+              <p className="text-text-secondary mt-4 text-lg">
                 {tutorial.description}
               </p>
-              <div className="mt-4 flex items-center gap-4 text-sm text-text-muted">
+              <div className="text-text-muted mt-4 flex items-center gap-4 text-sm">
                 <span>By {tutorial.author}</span>
                 <span>
                   {new Date(tutorial.publishedAt).toLocaleDateString("en-US", {
@@ -95,9 +94,7 @@ export default async function TutorialDetailPage({
 
             <aside className="hidden lg:block">
               <div className="sticky top-24">
-                <TableOfContents
-                  headings={extractHeadings(tutorial.content)}
-                />
+                <TableOfContents headings={extractHeadings(tutorial.content)} />
               </div>
             </aside>
           </div>
