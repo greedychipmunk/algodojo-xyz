@@ -24,7 +24,7 @@ export function StatsSection() {
     <section className="py-20 sm:py-28">
       <Container>
         <div className="rounded-xl border border-border bg-bg-secondary p-8 shadow-card">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {STATS.map((stat) => (
               <article
                 key={stat.label}
