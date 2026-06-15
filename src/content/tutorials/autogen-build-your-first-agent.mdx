@@ -1,0 +1,159 @@
+---
+title: "Build Your First AutoGen Agent"
+slug: "autogen-build-your-first-agent"
+description: "Get started with Microsoft AutoGen's modern AgentChat API. You'll install the framework, wire up a model client, and build a streaming assistant agent — the foundation for everything else AutoGen can do."
+tier: "free"
+category: "ai"
+tags: ["autogen", "ai-agents", "microsoft", "python", "beginner"]
+difficulty: "beginner"
+estimatedReadTime: 10
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## What Is AutoGen?
+
+[AutoGen](https://microsoft.github.io/autogen/stable/) is Microsoft's open-source framework for building AI agents and multi-agent applications. The **0.4 release was a ground-up rewrite** built on an asynchronous, event-driven core, so most older tutorials you'll find online (using `pyautogen` and synchronous `GroupChat`) no longer apply.
+
+This series uses the current, supported API. AutoGen ships as a few focused packages:
+
+- **`autogen-core`** — the low-level event-driven runtime
+- **`autogen-agentchat`** — the high-level API for building agents and teams (what you'll use most)
+- **`autogen-ext`** — integrations: model clients, tools, and external services
+
+We'll start with the smallest useful thing: a single agent that streams a response.
+
+## Prerequisites
+
+You'll need Python 3.10+ and an OpenAI API key. Install the AgentChat API plus the OpenAI extension:
+
+```bash
+pip install -U "autogen-agentchat" "autogen-ext[openai]"
+```
+
+Export your API key — the model client reads it automatically:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+> **Note:** AutoGen is provider-agnostic. The OpenAI client also talks to any OpenAI-compatible endpoint, and `autogen-ext` ships clients for Azure, Anthropic, Ollama, and others. You swap the client, not your agent code.
+
+## Step 1: Create a Model Client
+
+Everything in AutoGen that talks to an LLM goes through a **model client**. Create one and point it at a model:
+
+```python
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+model_client = OpenAIChatCompletionClient(model="gpt-4o")
+```
+
+The client is a managed resource that holds a connection, so you should **close it when you're done** (we'll do that at the end of `main`).
+
+## Step 2: Define an Assistant Agent
+
+`AssistantAgent` is the workhorse of AgentChat. At minimum it needs a `name` and a `model_client`; a `system_message` shapes its behavior.
+
+```python
+from autogen_agentchat.agents import AssistantAgent
+
+agent = AssistantAgent(
+    name="assistant",
+    model_client=model_client,
+    system_message="You are a helpful assistant who explains technical topics clearly and concisely.",
+    model_client_stream=True,  # stream tokens as they're generated
+)
+```
+
+Setting `model_client_stream=True` lets you see the response appear token-by-token instead of waiting for the whole thing.
+
+## Step 3: Run the Agent
+
+AutoGen is **async-first** — agents are run with `await` inside an async function. The `Console` helper consumes the agent's message stream and prints it nicely:
+
+```python
+import asyncio
+from autogen_agentchat.ui import Console
+
+async def main() -> None:
+    await Console(
+        agent.run_stream(task="Explain what an AI agent is in three sentences.")
+    )
+    await model_client.close()
+
+asyncio.run(main())
+```
+
+Putting it all together in `first_agent.py`:
+
+```python
+import asyncio
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.ui import Console
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+async def main() -> None:
+    model_client = OpenAIChatCompletionClient(model="gpt-4o")
+    agent = AssistantAgent(
+        name="assistant",
+        model_client=model_client,
+        system_message="You are a helpful assistant who explains technical topics clearly and concisely.",
+        model_client_stream=True,
+    )
+    await Console(agent.run_stream(task="Explain what an AI agent is in three sentences."))
+    await model_client.close()
+
+asyncio.run(main())
+```
+
+Run it:
+
+```bash
+python first_agent.py
+```
+
+## run() vs. run_stream()
+
+There are two ways to execute an agent:
+
+- **`run_stream(task=...)`** — returns an async stream of messages as they happen. Pair it with `Console` for live output. Best for interactive use and debugging.
+- **`run(task=...)`** — runs to completion and returns a single `TaskResult`. Best when you just want the final answer in code.
+
+```python
+result = await agent.run(task="Find three benefits of multi-agent systems.")
+
+# result.messages is the full conversation; the last one is the agent's reply.
+print(result.messages[-1].content)
+```
+
+## Agents Remember Their Context
+
+An `AssistantAgent` is **stateful** — it keeps the conversation history between calls, so you can have a multi-turn exchange:
+
+```python
+async def chat() -> None:
+    await agent.run(task="My name is Dawson.")
+    result = await agent.run(task="What's my name?")
+    print(result.messages[-1].content)  # -> mentions "Dawson"
+    await model_client.close()
+```
+
+That memory is per-agent and lives in process. To start fresh, create a new agent or reset its state.
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `RuntimeError: asyncio.run() cannot be called from a running event loop` | You're in a Jupyter notebook | Use `await main()` directly — notebooks already run a loop |
+| `ModuleNotFoundError: autogen_ext` | Missing the extension package | `pip install "autogen-ext[openai]"` |
+| Hangs or warns on exit | Model client never closed | `await model_client.close()` at the end |
+| `AuthenticationError` | API key not set | Export `OPENAI_API_KEY` before running |
+| Following an old tutorial fails on import | It targets `pyautogen` (0.2) | Use `autogen-agentchat` (0.4+) APIs shown here |
+
+## Where to Go Next
+
+Right now the agent can only reason from its training data. In the next tutorial, [Give Your AutoGen Agent Tools](/tutorials/autogen-agent-tools), you'll hand it Python functions it can call — turning it from a chatbot into something that can actually *do* things.
+
+After that, [Multi-Agent Teams in AutoGen](/tutorials/autogen-multi-agent-teams) shows how to make several agents collaborate.

@@ -1,0 +1,176 @@
+---
+title: "Multi-Agent Teams in AutoGen"
+slug: "autogen-multi-agent-teams"
+description: "Make AutoGen agents collaborate. Learn RoundRobinGroupChat for turn-taking, termination conditions to control when a team stops, SelectorGroupChat for dynamic speaker selection, and how to bring a human into the loop."
+tier: "free"
+category: "ai"
+tags: ["autogen", "ai-agents", "multi-agent", "teams", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 14
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## From One Agent to a Team
+
+A single agent is great at a single job. But many real tasks improve when you split them across **specialized agents** that critique and build on each other's work — a writer and an editor, a planner and an executor, a researcher and a fact-checker.
+
+In AutoGen, a **team** coordinates multiple agents and decides who speaks next. This tutorial covers the two teams you'll use most — `RoundRobinGroupChat` and `SelectorGroupChat` — plus the termination conditions that keep them from running forever. It builds on the [first agent](/tutorials/autogen-build-your-first-agent) and [tools](/tutorials/autogen-agent-tools) tutorials.
+
+## RoundRobinGroupChat: Take Turns
+
+The simplest team is `RoundRobinGroupChat`: agents speak in a fixed, repeating order. It's perfect for the **reflection pattern** — one agent produces work, another critiques it, and they loop until the critic is satisfied.
+
+```python
+import asyncio
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_agentchat.ui import Console
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+async def main() -> None:
+    model_client = OpenAIChatCompletionClient(model="gpt-4o")
+
+    writer = AssistantAgent(
+        name="writer",
+        model_client=model_client,
+        system_message="You write concise marketing copy. Revise based on the critic's feedback.",
+    )
+
+    critic = AssistantAgent(
+        name="critic",
+        model_client=model_client,
+        system_message=(
+            "You are a sharp copy editor. Give specific, actionable feedback. "
+            "When the copy is strong and needs no further changes, reply with the single word APPROVE."
+        ),
+    )
+
+    # Stop when the critic says APPROVE, or after 10 messages as a safety net.
+    termination = TextMentionTermination("APPROVE") | MaxMessageTermination(10)
+
+    team = RoundRobinGroupChat([writer, critic], termination_condition=termination)
+
+    await Console(team.run_stream(task="Write a two-sentence tagline for a focus-timer app."))
+    await model_client.close()
+
+asyncio.run(main())
+```
+
+The flow: `writer` drafts → `critic` critiques → `writer` revises → … until the critic emits `APPROVE` or the message cap hits.
+
+## Termination Conditions Are Composable
+
+A team needs a clear stop signal, or it loops indefinitely. AutoGen ships several conditions in `autogen_agentchat.conditions`:
+
+- **`TextMentionTermination("APPROVE")`** — stop when a message contains the given text
+- **`MaxMessageTermination(10)`** — stop after N messages
+- **`TextMessageTermination("agent_name")`** — stop after a specific agent sends a plain text message
+
+Combine them with `|` (OR) and `&` (AND):
+
+```python
+from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+
+# Stop on approval OR after 10 messages — whichever comes first.
+termination = TextMentionTermination("APPROVE") | MaxMessageTermination(10)
+```
+
+Always pair a "smart" condition (like `TextMentionTermination`) with a hard cap (`MaxMessageTermination`). The cap is your safety net if the agents never converge.
+
+## Inspecting and Reusing a Team
+
+`run_stream` is great for watching live, but in code you often want the result object. `run` returns a `TaskResult`:
+
+```python
+result = await team.run(task="Write a tagline for a budgeting app.")
+
+print(result.stop_reason)          # why the team stopped
+print(result.messages[-1].content) # the final message
+```
+
+Teams are **stateful** — they remember the previous conversation. Before running a fresh, unrelated task, reset:
+
+```python
+await team.reset()
+```
+
+## SelectorGroupChat: Let a Model Pick the Speaker
+
+Round-robin is predictable but rigid. When you have several specialists and the right next speaker depends on context, use `SelectorGroupChat`. It uses a model to choose who speaks next based on each agent's description.
+
+```python
+from autogen_agentchat.teams import SelectorGroupChat
+
+planner = AssistantAgent(
+    name="planner",
+    model_client=model_client,
+    description="Breaks a request into steps and decides what to do next.",
+    system_message="You plan the work and delegate. Summarize and finish when the task is done.",
+)
+researcher = AssistantAgent(
+    name="researcher",
+    model_client=model_client,
+    description="Finds facts and gathers information using tools.",
+    tools=[web_search],  # a tool from the previous tutorial
+    system_message="You research questions and report findings with sources.",
+)
+writer = AssistantAgent(
+    name="writer",
+    model_client=model_client,
+    description="Writes the final, polished answer for the user.",
+    system_message="You turn research into a clear final answer.",
+)
+
+team = SelectorGroupChat(
+    [planner, researcher, writer],
+    model_client=model_client,
+    termination_condition=MaxMessageTermination(15),
+    allow_repeated_speaker=True,  # let an agent speak twice in a row when it makes sense
+)
+
+await Console(team.run_stream(task="Summarize the key tradeoffs of serverless databases."))
+```
+
+The `description` field is now doing real work — it's what the selector model reads to choose the next speaker, so write each one as a crisp statement of what that agent is good for.
+
+| Team | Speaker order | Use when |
+|---|---|---|
+| `RoundRobinGroupChat` | Fixed rotation | A predictable loop like writer ↔ critic |
+| `SelectorGroupChat` | Model-chosen per turn | Several specialists; the right one depends on context |
+
+## Bringing a Human Into the Loop
+
+Add a `UserProxyAgent` to pause for human input — useful for approvals or supplying information only a person has. It's just another team member:
+
+```python
+from autogen_agentchat.agents import UserProxyAgent
+
+user = UserProxyAgent("user", input_func=input)  # prompts via the console
+
+team = RoundRobinGroupChat(
+    [writer, user],
+    termination_condition=TextMentionTermination("APPROVE"),
+)
+
+# The team will pause and wait for you to type. Reply "APPROVE" to finish.
+await Console(team.run_stream(task="Draft a welcome email; I'll approve it."))
+```
+
+When it's the user's turn, the team blocks on `input_func` and waits for a real person. Swap `input` for a web or chat callback to wire human review into a production app.
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Team never stops | No termination condition (or condition never met) | Always add `MaxMessageTermination(n)` as a backstop |
+| Critic loop ends immediately | Writer's text contains the stop word | Choose a distinctive token like `APPROVE` and instruct only the critic to use it |
+| `SelectorGroupChat` picks the wrong agent | Vague `description` fields | Make each agent's `description` a precise statement of its job |
+| Old context bleeds into a new run | Team state persisted | Call `await team.reset()` before the next task |
+| Agent repeats itself endlessly | Selector keeps choosing it | Set `allow_repeated_speaker=False`, or tighten the termination cap |
+
+## Wrapping Up
+
+You've gone from a [single streaming agent](/tutorials/autogen-build-your-first-agent), to one that [acts through tools](/tutorials/autogen-agent-tools), to **teams** that collaborate and loop until the work is done — with a human in the loop when you need one. From here, explore AutoGen's `autogen-ext` integrations (Azure, Anthropic, local models, MCP tools) and the event-driven `autogen-core` runtime for fully custom agent architectures.
