@@ -1,0 +1,221 @@
+---
+title: "Production CrewAI: YAML Config and Structured Output"
+slug: "crewai-yaml-config-structured-output"
+description: "Move beyond single-file scripts. Learn the project layout CrewAI recommends — scaffolded with the CLI, configured in YAML, wired with @CrewBase — and get typed, parseable Pydantic output back from your crew."
+tier: "free"
+category: "ai"
+tags: ["crewai", "ai-agents", "multi-agent", "pydantic", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 15
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## From Script to Project
+
+The crew from the [first tutorial](/tutorials/crewai-build-your-first-crew) works, but everything lives in one file: agents, tasks, prompts, and orchestration all tangled together. That's fine for learning and painful for anything real.
+
+CrewAI's recommended structure separates **configuration** (who the agents are, what the tasks expect) from **code** (how they're wired and run). Configuration goes in YAML; code goes in a class decorated with `@CrewBase`. This tutorial converts our research crew into that layout and adds **structured output** so downstream code gets typed data instead of a blob of text.
+
+## Step 1: Scaffold with the CLI
+
+Don't hand-write the project skeleton — let the CLI generate the correct structure, imports, and `pyproject.toml`:
+
+```bash
+pip install crewai
+crewai create flow research_project
+```
+
+> **Use underscores, not hyphens.** `crewai create flow research-project` produces a directory that isn't a valid Python module name and will fail to import. Use `research_project`.
+
+You'll get a layout like this:
+
+```text
+research_project/
+├── src/research_project/
+│   ├── crews/
+│   │   └── research_crew/
+│   │       ├── config/
+│   │       │   ├── agents.yaml    # who the agents are
+│   │       │   └── tasks.yaml     # what the tasks expect
+│   │       └── research_crew.py   # the @CrewBase class
+│   ├── tools/
+│   ├── main.py                    # the Flow entry point
+│   └── ...
+├── .env                           # API keys
+└── pyproject.toml
+```
+
+Add your keys to `.env`:
+
+```bash
+OPENAI_API_KEY=sk-...
+SERPER_API_KEY=...
+```
+
+## Step 2: Describe Agents in YAML
+
+Open `config/agents.yaml`. Each top-level key is an agent. Note the `{topic}` placeholders — they're filled at runtime, exactly like in the script version.
+
+```yaml
+researcher:
+  role: >
+    Senior {topic} Researcher
+  goal: >
+    Find accurate, up-to-date information about {topic} and verify it
+    against live sources.
+  backstory: >
+    You're a meticulous researcher who always cites sources and flags
+    uncertainty rather than guessing.
+
+analyst:
+  role: >
+    {topic} Analyst
+  goal: >
+    Turn raw research into a structured, decision-ready summary.
+  backstory: >
+    You distill noisy findings into clear, prioritized insights.
+```
+
+## Step 3: Describe Tasks in YAML
+
+Open `config/tasks.yaml`. Each task references an agent by its YAML key. Keep `expected_output` concrete — it's still your biggest lever on quality.
+
+```yaml
+research_task:
+  description: >
+    Research the current state of {topic}. Search the web for
+    developments from the last 12 months and verify key claims.
+  expected_output: >
+    A briefing of 5-8 notes, each with a source URL.
+  agent: researcher
+
+analysis_task:
+  description: >
+    Analyze the research and produce a structured summary of {topic}.
+  expected_output: >
+    A summary with: a one-line headline, 3-5 key findings, and an
+    overall confidence score between 0 and 1.
+  agent: analyst
+```
+
+## Step 4: Define the Output Shape
+
+To get **typed** results, declare a Pydantic model. The crew will parse the final task's output into this shape:
+
+```python
+# src/research_project/crews/research_crew/research_crew.py
+from pydantic import BaseModel
+
+class TopicSummary(BaseModel):
+    headline: str
+    key_findings: list[str]
+    confidence: float
+```
+
+> **Important:** `expected_output` in YAML is always a plain-English *string* describing the result. The Pydantic model is wired separately via `output_pydantic` (next step) — never put a class name in `expected_output`.
+
+## Step 5: Wire It Together with @CrewBase
+
+The `@CrewBase` decorator auto-loads your YAML files and collects every `@agent` and `@task` method. **Method names must match the YAML keys.**
+
+```python
+from crewai import Agent, Crew, Process, Task
+from crewai.project import CrewBase, agent, crew, task
+from crewai_tools import SerperDevTool
+
+@CrewBase
+class ResearchCrew:
+    """Researches a topic and returns a structured summary."""
+
+    agents_config = "config/agents.yaml"
+    tasks_config = "config/tasks.yaml"
+
+    @agent
+    def researcher(self) -> Agent:
+        return Agent(
+            config=self.agents_config["researcher"],
+            tools=[SerperDevTool()],
+            verbose=True,
+        )
+
+    @agent
+    def analyst(self) -> Agent:
+        return Agent(config=self.agents_config["analyst"], verbose=True)
+
+    @task
+    def research_task(self) -> Task:
+        return Task(config=self.tasks_config["research_task"])
+
+    @task
+    def analysis_task(self) -> Task:
+        return Task(
+            config=self.tasks_config["analysis_task"],
+            output_pydantic=TopicSummary,  # parse the result into our model
+        )
+
+    @crew
+    def crew(self) -> Crew:
+        return Crew(
+            agents=self.agents,  # auto-collected from @agent methods
+            tasks=self.tasks,    # auto-collected from @task methods
+            process=Process.sequential,
+            verbose=True,
+        )
+```
+
+`self.agents` and `self.tasks` are populated automatically by the decorators — you don't list them by hand. Tools still attach in code (the YAML stays about *what*, not *how*).
+
+## Step 6: Run It and Use the Typed Result
+
+The scaffold's `main.py` already calls the crew. The key idea is what you get back: because `analysis_task` has `output_pydantic`, `result.pydantic` is a real `TopicSummary` instance.
+
+```python
+# src/research_project/main.py
+from research_project.crews.research_crew.research_crew import ResearchCrew
+
+def kickoff():
+    result = ResearchCrew().crew().kickoff(
+        inputs={"topic": "AI agents"}
+    )
+
+    summary = result.pydantic          # a TopicSummary object
+    print(summary.headline)
+    print(f"Confidence: {summary.confidence:.0%}")
+    for finding in summary.key_findings:
+        print(f"  - {finding}")
+
+if __name__ == "__main__":
+    kickoff()
+```
+
+Install dependencies and run:
+
+```bash
+crewai install
+crewai run
+```
+
+Because `summary` is typed, your editor autocompletes its fields and downstream code can rely on the shape — no fragile string parsing.
+
+## Why This Structure Pays Off
+
+- **Non-engineers can tune behavior.** Editing a role or goal is a YAML change, not a code change.
+- **Prompts are versioned and diff-friendly.** Reviewing a prompt tweak in a pull request is trivial.
+- **Output is contract-bound.** `output_pydantic` means a downstream service, API, or database write gets validated data.
+- **It scales to Flows.** The CLI scaffolded a Flow for a reason — you can add routing, state, and multiple crews later without restructuring.
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `KeyError` on `self.agents_config['researcher']` | Method name doesn't match the YAML key | Make `def researcher` match `researcher:` |
+| `ModuleNotFoundError` on import | Hyphens in the project name | Recreate with underscores |
+| `result.pydantic` is `None` | `output_pydantic` not set on the final task | Add `output_pydantic=YourModel` to the task |
+| Agent retries forever on structured output | Model too small for the schema | Simplify the model or use a stronger `llm` |
+| `{topic}` appears literally | Missing `inputs=` in `kickoff()` | Pass `inputs={"topic": "..."}` |
+
+## Wrapping Up
+
+You've now taken a crew through the full arc: from a [single-file prototype](/tutorials/crewai-build-your-first-crew), to a crew that works with [real data via tools](/tutorials/crewai-agent-tools), to a production-shaped project with configuration-driven agents and typed output. From here, the natural next step is wrapping crews in a **Flow** for state management, conditional routing, and human-in-the-loop review.

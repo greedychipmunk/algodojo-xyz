@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { getAllBlogPosts, getBlogPostBySlug } from "@/lib/content";
+import { renderMarkdown } from "@/lib/markdown";
 import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
 interface BlogPostPageProps {
@@ -36,6 +37,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
+  const contentHtml = await renderMarkdown(post.content);
+
   return (
     <>
       <script
@@ -68,8 +71,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
               </span>
             </div>
 
-            <div className="prose prose-invert mt-12 max-w-none">
-              <div dangerouslySetInnerHTML={{ __html: post.content }} />
+            <div className="prose mt-12 max-w-none">
+              <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
             </div>
           </div>
         </Container>

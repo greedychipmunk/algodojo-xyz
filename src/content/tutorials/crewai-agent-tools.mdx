@@ -1,0 +1,178 @@
+---
+title: "Give Your CrewAI Agents Tools"
+slug: "crewai-agent-tools"
+description: "An agent without tools can only guess. Learn how to equip CrewAI agents with real capabilities — live web search via crewai-tools, plus your own custom tools — so your crew works with current, factual data."
+tier: "free"
+category: "ai"
+tags: ["crewai", "ai-agents", "tools", "web-search", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## Why Agents Need Tools
+
+In the [first tutorial](/tutorials/crewai-build-your-first-crew) our researcher "researched" a topic — but it had no way to actually look anything up. It answered entirely from the model's training data, which means anything recent or niche gets **hallucinated**.
+
+Tools fix this. A tool is a function the agent can choose to call: a web search, a database query, a calculator, an internal API. The agent decides *when* to use a tool based on the task, calls it, reads the result, and continues reasoning.
+
+This tutorial assumes you've completed the first one. We'll upgrade that same research crew so it works with live data.
+
+## Setup
+
+The built-in tools live in a separate package:
+
+```bash
+pip install crewai crewai-tools
+```
+
+We'll use [Serper.dev](https://serper.dev) for Google search — it has a free tier. Grab an API key and export both keys:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export SERPER_API_KEY="..."
+```
+
+## Adding a Built-in Tool
+
+CrewAI ships 80+ ready-made tools in `crewai_tools`. The two you'll reach for most are `SerperDevTool` (web search) and `ScrapeWebsiteTool` (read a page's contents). Assigning a tool to an agent is a one-liner:
+
+```python
+from crewai import Agent
+from crewai_tools import SerperDevTool, ScrapeWebsiteTool
+
+researcher = Agent(
+    role="Senior Technology Researcher",
+    goal="Find accurate, up-to-date information about {topic}",
+    backstory=(
+        "You're a meticulous researcher who always cites sources and "
+        "verifies claims against the live web before reporting them."
+    ),
+    tools=[SerperDevTool(), ScrapeWebsiteTool()],
+    llm="openai/gpt-4o",
+    verbose=True,
+)
+```
+
+That's the entire change. The agent now decides on its own when to search and when to scrape a result for detail. Pair it with a task that explicitly asks for sources so the tool actually gets used:
+
+```python
+from crewai import Task
+
+research_task = Task(
+    description=(
+        "Research the current state of {topic}. Search the web for "
+        "developments from the last 12 months and verify key claims "
+        "against at least two sources."
+    ),
+    expected_output=(
+        "A briefing of 5-8 notes. Every factual claim must include a "
+        "source URL. Flag anything you could not verify."
+    ),
+    agent=researcher,
+)
+```
+
+> **Key lesson:** an agent with no tools will confidently invent search results. If you need real data, the agent *must* have a tool — and the task should make the need for evidence explicit.
+
+## Writing a Custom Tool
+
+Built-in tools cover common cases, but the real power is wrapping *your* systems — an internal pricing API, a vector store, a CRM. The quickest way is the `@tool` decorator from `crewai.tools`.
+
+The function's **docstring is not optional**: it's what the LLM reads to decide when and how to call the tool. Treat it like a mini prompt.
+
+```python
+from crewai.tools import tool
+import requests
+
+@tool("GitHub Repo Stats")
+def github_repo_stats(repo: str) -> str:
+    """Fetch live star count, open issues, and primary language for a
+    GitHub repository. Input must be in 'owner/name' format,
+    e.g. 'crewAIInc/crewAI'."""
+    resp = requests.get(f"https://api.github.com/repos/{repo}", timeout=10)
+    if resp.status_code != 200:
+        return f"Could not fetch '{repo}' (status {resp.status_code})."
+    data = resp.json()
+    return (
+        f"{repo}: {data['stargazers_count']} stars, "
+        f"{data['open_issues_count']} open issues, "
+        f"language: {data.get('language', 'unknown')}."
+    )
+```
+
+Add it to the agent's `tools` list alongside the built-ins:
+
+```python
+researcher = Agent(
+    role="Senior Technology Researcher",
+    goal="Find accurate, up-to-date information about {topic}",
+    backstory="You verify claims against live data before reporting.",
+    tools=[SerperDevTool(), github_repo_stats],
+    llm="openai/gpt-4o",
+    verbose=True,
+)
+```
+
+### The Class-Based Alternative
+
+For tools with multiple typed arguments or validation, subclass `BaseTool` and declare an `args_schema`. This gives the LLM a precise, typed contract for the inputs:
+
+```python
+from typing import Type
+from crewai.tools import BaseTool
+from pydantic import BaseModel, Field
+
+class CurrencyInput(BaseModel):
+    amount: float = Field(..., description="Amount to convert")
+    from_currency: str = Field(..., description="3-letter ISO code, e.g. USD")
+    to_currency: str = Field(..., description="3-letter ISO code, e.g. EUR")
+
+class CurrencyConverterTool(BaseTool):
+    name: str = "Currency Converter"
+    description: str = "Convert an amount from one currency to another using live rates."
+    args_schema: Type[BaseModel] = CurrencyInput
+
+    def _run(self, amount: float, from_currency: str, to_currency: str) -> str:
+        url = f"https://api.frankfurter.app/latest?amount={amount}&from={from_currency}&to={to_currency}"
+        data = requests.get(url, timeout=10).json()
+        rate = data["rates"].get(to_currency.upper())
+        if rate is None:
+            return f"No rate available for {to_currency}."
+        return f"{amount} {from_currency.upper()} = {rate} {to_currency.upper()}"
+```
+
+Use `@tool` for quick, single-input helpers; use `BaseTool` when you want validated, multi-field inputs.
+
+## Agent Tools vs. Task Tools
+
+You can attach tools at two levels:
+
+- **Agent-level** (`Agent(tools=[...])`) — the agent can use these tools on *any* task it runs.
+- **Task-level** (`Task(tools=[...])`) — these tools apply only to that task and **override** the agent's tools for it.
+
+Task-level tools are handy when one agent does several jobs but should only use search for the research step:
+
+```python
+deep_dive_task = Task(
+    description="Scrape and summarize the official docs for {topic}.",
+    expected_output="A structured summary with direct quotes and links.",
+    agent=researcher,
+    tools=[ScrapeWebsiteTool()],  # only this task uses scraping
+)
+```
+
+## Debugging Tool Use
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Agent invents data instead of searching | No tool assigned, or task doesn't demand evidence | Add the tool and require source URLs in `expected_output` |
+| `SERPER_API_KEY` error | Key not exported | Set the env var before running |
+| Agent never calls your custom tool | Vague docstring | Rewrite the docstring to state exactly when to use it and the input format |
+| Tool called with malformed input | Loose argument types | Use a `BaseTool` with an `args_schema` for typed validation |
+
+## Where to Go Next
+
+Your crew now works with real, verifiable information. The last piece is structure: as crews grow, defining everything inline becomes unwieldy. In [Production CrewAI: YAML Config and Structured Output](/tutorials/crewai-yaml-config-structured-output) you'll move to the recommended project layout and get typed, parseable results back from your crew.
