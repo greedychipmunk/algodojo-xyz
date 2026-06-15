@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/ui/logo";
 
 const FOOTER_LINKS = {
   services: [
@@ -24,9 +25,12 @@ export function Footer() {
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {/* Company info */}
           <div className="space-y-4">
-            <Link href="/" className="text-xl font-bold">
-              <span className="text-text-primary">Algo</span>
-              <span className="text-accent">Dojo</span>
+            <Link
+              href="/"
+              aria-label="Algo Dojo — home"
+              className="inline-block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-secondary"
+            >
+              <Logo />
             </Link>
             <p className="max-w-xs text-sm leading-6 text-text-secondary">
               AI/ML consulting and education. We examine business workflows

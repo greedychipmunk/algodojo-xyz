@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { NAV_ITEMS } from "@/lib/constants";
 import { Navigation } from "@/components/layout/navigation";
+import { Logo } from "@/components/ui/logo";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -39,9 +40,12 @@ export function Header() {
       >
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 text-xl font-bold">
-            <span className="text-text-primary">Algo</span>
-            <span className="text-accent">Dojo</span>
+          <Link
+            href="/"
+            aria-label="Algo Dojo — home"
+            className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+          >
+            <Logo />
           </Link>
 
           {/* Desktop nav */}
