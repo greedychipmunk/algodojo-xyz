@@ -1,0 +1,160 @@
+---
+title: "Build Your First CrewAI Crew"
+slug: "crewai-build-your-first-crew"
+description: "Build a working multi-agent system with CrewAI from scratch. You'll wire up two collaborating agents — a researcher and a writer — into a sequential crew that turns a topic into a finished briefing."
+tier: "free"
+category: "ai"
+tags: ["crewai", "ai-agents", "multi-agent", "python", "beginner"]
+difficulty: "beginner"
+estimatedReadTime: 11
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## What Is CrewAI?
+
+[CrewAI](https://docs.crewai.com) is a Python framework for orchestrating **multiple AI agents** that collaborate to complete a task. Instead of cramming everything into one giant prompt, you give each agent a focused role — a researcher, a writer, an analyst — and let them pass work down a pipeline.
+
+The framework is built from four core objects:
+
+- **Agent** — an LLM-backed worker with a role, a goal, and a backstory
+- **Task** — a single unit of work with a clear objective and expected output
+- **Crew** — the team of agents plus the tasks they execute, in a defined process
+- **Process** — how tasks run (`sequential` one-after-another, or `hierarchical` with a manager)
+
+In this tutorial we'll build a two-agent crew that researches a topic and writes a short briefing about it.
+
+## Prerequisites
+
+You'll need Python 3.10+ and an OpenAI API key.
+
+```bash
+pip install crewai
+```
+
+Set your API key as an environment variable. CrewAI reads it automatically:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+> **Note:** CrewAI uses [LiteLLM](https://docs.litellm.ai) under the hood, so the same code works with Anthropic, Google, Groq, local Ollama models, and more — you just change the model string and the corresponding API key.
+
+## Step 1: Define Your Agents
+
+An agent's behavior is shaped almost entirely by three fields: **role**, **goal**, and **backstory**. Be specific — these become part of the system prompt, so vague roles produce vague work.
+
+```python
+from crewai import Agent
+
+researcher = Agent(
+    role="Senior Technology Researcher",
+    goal="Find accurate, up-to-date information about {topic}",
+    backstory=(
+        "You're a meticulous researcher who values primary sources and "
+        "flags uncertainty rather than guessing. You distill complex "
+        "topics into clear, factual notes."
+    ),
+    llm="openai/gpt-4o",
+    verbose=True,
+)
+
+writer = Agent(
+    role="Technical Writer",
+    goal="Turn research notes into a clear, engaging briefing for a busy reader",
+    backstory=(
+        "You're an experienced writer who specializes in making technical "
+        "subjects accessible without dumbing them down."
+    ),
+    llm="openai/gpt-4o",
+    verbose=True,
+)
+```
+
+Notice the `{topic}` placeholder in the researcher's goal. CrewAI replaces it at runtime with a value you pass to `kickoff()` — that's what makes the crew reusable across different topics.
+
+## Step 2: Define Your Tasks
+
+Each task needs a **description** (what to do) and an **expected_output** (what "done" looks like). The expected output is the single most important field for quality — the more concretely you describe the finished result, the better the agent performs.
+
+```python
+from crewai import Task
+
+research_task = Task(
+    description=(
+        "Research {topic}. Identify the 3-5 most important things a "
+        "newcomer needs to understand, plus any common misconceptions."
+    ),
+    expected_output=(
+        "A bullet-point briefing of 5-8 concise notes covering the key "
+        "concepts and at least one common misconception."
+    ),
+    agent=researcher,
+)
+
+write_task = Task(
+    description=(
+        "Using the research notes, write a short briefing about {topic} "
+        "for a smart but non-expert reader."
+    ),
+    expected_output=(
+        "A ~300-word briefing in markdown with a one-sentence summary at "
+        "the top, followed by 3-4 short paragraphs."
+    ),
+    agent=writer,
+)
+```
+
+We never tell the writer *where* the research comes from. In a sequential crew, each task automatically receives the output of every prior task as context — so `write_task` already "sees" the researcher's notes.
+
+## Step 3: Assemble and Run the Crew
+
+```python
+from crewai import Crew, Process
+
+crew = Crew(
+    agents=[researcher, writer],
+    tasks=[research_task, write_task],
+    process=Process.sequential,
+    verbose=True,
+)
+
+result = crew.kickoff(inputs={"topic": "retrieval-augmented generation"})
+
+print(result.raw)
+```
+
+`inputs={"topic": ...}` fills in every `{topic}` placeholder in your agents and tasks. Run it:
+
+```bash
+python crew.py
+```
+
+With `verbose=True` you'll watch each agent think and hand off its work. The final briefing is in `result.raw`.
+
+## Understanding the Result Object
+
+`kickoff()` returns a `CrewOutput`, not a plain string. The most useful attributes:
+
+```python
+result.raw                 # the final task's output as a string
+result.tasks_output        # a list of every task's output
+result.tasks_output[0].raw # just the researcher's notes
+result.token_usage         # token counts for the whole run
+```
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `{topic}` shows up literally in the output | You forgot `inputs=` in `kickoff()` | Pass `crew.kickoff(inputs={"topic": "..."})` |
+| `AttributeError` on `Process.SEQUENTIAL` | Wrong casing | Use lowercase `Process.sequential` |
+| `AuthenticationError` | API key not set | Export `OPENAI_API_KEY` before running |
+| Output is shallow or generic | Vague `expected_output` | Specify format, length, and required sections |
+
+## Where to Go Next
+
+Right now both agents rely purely on the model's training data — they can't look anything up. In the next tutorial, [Give Your CrewAI Agents Tools](/tutorials/crewai-agent-tools), we'll equip the researcher with live web search and a custom tool so it works with real, current information instead of guessing.
+
+For production projects, you'll also want to move these definitions out of a single script and into the structured, configuration-driven layout CrewAI recommends — covered in [Production CrewAI: YAML Config and Structured Output](/tutorials/crewai-yaml-config-structured-output).

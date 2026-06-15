@@ -3,6 +3,7 @@ import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { TableOfContents } from "@/components/tutorials/table-of-contents";
 import { getAllTutorials, getTutorialBySlug } from "@/lib/content";
+import { renderMarkdown } from "@/lib/markdown";
 import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
 interface TutorialDetailPageProps {
@@ -39,6 +40,8 @@ export default async function TutorialDetailPage({
   if (!tutorial) {
     notFound();
   }
+
+  const contentHtml = await renderMarkdown(tutorial.content);
 
   const tierVariant = tutorial.tier === "free" ? "success" : "accent";
   const difficultyVariant =
@@ -87,14 +90,14 @@ export default async function TutorialDetailPage({
                 <span>{tutorial.estimatedReadTime} min read</span>
               </div>
 
-              <div className="prose prose-invert mt-12 max-w-none">
-                <div dangerouslySetInnerHTML={{ __html: tutorial.content }} />
+              <div className="prose mt-12 max-w-none">
+                <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
               </div>
             </div>
 
             <aside className="hidden lg:block">
               <div className="sticky top-24">
-                <TableOfContents headings={extractHeadings(tutorial.content)} />
+                <TableOfContents headings={extractHeadings(contentHtml)} />
               </div>
             </aside>
           </div>
