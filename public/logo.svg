@@ -1,0 +1,16 @@
+<svg width="208" height="48" viewBox="0 0 208 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Algo Dojo">
+  <!-- Mark: torii gate + amber inference-node keystone (light, for dark backgrounds) -->
+  <g transform="translate(4 6) scale(1.125)">
+    <g fill="#fafaf9">
+      <rect x="4.5" y="6.8" width="23" height="3" rx="0.9" />
+      <rect x="8" y="12" width="16" height="2.4" rx="0.7" />
+      <path d="M10 9.8 H12.2 L12.6 26 H9.2 Z" />
+      <path d="M22 9.8 H19.8 L19.4 26 H22.8 Z" />
+    </g>
+    <path d="M16 9.2 L18 11 L16 12.8 L14 11 Z" fill="#f59e0b" />
+  </g>
+  <!-- Wordmark -->
+  <text x="50" y="32" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">
+    <tspan fill="#fafaf9">Algo</tspan><tspan fill="#f59e0b">Dojo</tspan>
+  </text>
+</svg>
