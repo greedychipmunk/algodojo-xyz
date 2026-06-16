@@ -23,7 +23,7 @@ export default async function HomePage() {
       <HeroSection />
       <FeaturesSection />
       <StatsSection />
-      {/* <TutorialsPreview tutorials={featured} /> */}
+      <TutorialsPreview tutorials={featured} />
       <TestimonialSection />
       <CtaSection
         title="Ready to Optimize Your Workflows?"
