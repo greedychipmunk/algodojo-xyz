@@ -1,0 +1,151 @@
+---
+title: "Memory and Human-in-the-Loop with LangGraph"
+slug: "langgraph-memory-and-human-in-the-loop"
+description: "Make LangGraph agents durable. Add a checkpointer for multi-turn memory across threads, then use interrupt() to pause a running graph for human approval and resume it exactly where it left off."
+tier: "free"
+category: "ai"
+tags: ["langgraph", "langchain", "ai-agents", "memory", "human-in-the-loop", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## Persistence Is the Point
+
+The agents from the [previous tutorials](/tutorials/langgraph-tool-calling-agents) forget everything the moment `invoke` returns. LangGraph's standout feature fixes that: a **checkpointer** that saves the graph's state after every step. With it you get:
+
+- **Memory** — multi-turn conversations that remember earlier messages
+- **Durability** — state survives crashes and restarts; you can resume a run
+- **Human-in-the-loop** — pause mid-graph, wait for a person, and continue
+
+This tutorial covers both halves: persistent memory, then pausing for human input.
+
+## Adding Memory with a Checkpointer
+
+A checkpointer is a storage backend. The simplest is `InMemorySaver`; you pass it to `compile()` (or to `create_react_agent`). Conversations are then keyed by a **`thread_id`** you supply in the config.
+
+```python
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import InMemorySaver
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    return f"It's 22°C and sunny in {city}."
+
+checkpointer = InMemorySaver()
+agent = create_react_agent(
+    ChatOpenAI(model="gpt-4o"),
+    tools=[get_weather],
+    checkpointer=checkpointer,
+)
+
+# A thread_id namespaces one conversation.
+config = {"configurable": {"thread_id": "user-123"}}
+
+agent.invoke({"messages": [{"role": "user", "content": "I'm planning a trip to Lisbon."}]}, config)
+
+# Second turn, same thread — the agent remembers Lisbon.
+result = agent.invoke({"messages": [{"role": "user", "content": "What's the weather there?"}]}, config)
+print(result["messages"][-1].content)  # checks the weather in Lisbon
+```
+
+The second call only sends *"What's the weather there?"* — yet the agent resolves "there" to Lisbon, because the checkpointer restored the prior messages for `thread_id="user-123"`. Use a **different** `thread_id` and you get a clean, separate conversation.
+
+### Inspecting and Resuming State
+
+Because state is persisted, you can read it back at any time:
+
+```python
+snapshot = agent.get_state(config)
+print(snapshot.values["messages"])  # full message history for this thread
+print(snapshot.next)                # which node(s) would run next
+```
+
+### From In-Memory to Durable
+
+`InMemorySaver` lives in process — restart and it's gone. For real persistence, swap in a database-backed checkpointer with the **same interface**; nothing else in your code changes:
+
+```python
+# pip install langgraph-checkpoint-sqlite
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+with SqliteSaver.from_conn_string("checkpoints.sqlite") as checkpointer:
+    agent = create_react_agent(ChatOpenAI(model="gpt-4o"), tools=[get_weather], checkpointer=checkpointer)
+    # ... conversations now survive restarts
+```
+
+Postgres (`langgraph-checkpoint-postgres`) is the usual production choice.
+
+## Human-in-the-Loop with interrupt()
+
+Sometimes the graph should stop and wait for a person — to approve a risky action, edit a draft, or supply missing information. LangGraph does this with `interrupt()`, which **pauses the graph and persists its state**. You resume by invoking with a `Command`.
+
+A checkpointer is **required** — that's what lets the paused graph be stored and resumed.
+
+```python
+from typing import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import interrupt, Command
+
+class State(TypedDict):
+    draft: str
+    approved: bool
+
+def write_draft(state: State) -> dict:
+    return {"draft": "Dear customer, your refund of $40 has been approved."}
+
+def human_review(state: State) -> dict:
+    # Execution pauses here. The payload is surfaced to your application.
+    decision = interrupt({"draft": state["draft"]})
+    return {"approved": decision == "approve"}
+
+builder = StateGraph(State)
+builder.add_node("write_draft", write_draft)
+builder.add_node("human_review", human_review)
+builder.add_edge(START, "write_draft")
+builder.add_edge("write_draft", "human_review")
+builder.add_edge("human_review", END)
+
+graph = builder.compile(checkpointer=InMemorySaver())
+config = {"configurable": {"thread_id": "review-1"}}
+```
+
+Run it. The first invoke proceeds until the `interrupt`, then returns with the paused state instead of finishing:
+
+```python
+result = graph.invoke({}, config)
+print(result["__interrupt__"])  # contains the {"draft": ...} payload to show a human
+```
+
+Show that draft to a reviewer, collect their decision, and resume. The value you pass as `resume` becomes the **return value of `interrupt()`**:
+
+```python
+final = graph.invoke(Command(resume="approve"), config)
+print(final["approved"])  # True
+```
+
+Because the pause is persisted, the gap between the two calls can be milliseconds or days — across an HTTP request, a Slack approval, or a server restart. The graph picks up exactly where it stopped.
+
+## Putting It Together
+
+A realistic agent combines both: a checkpointer for memory *and* an `interrupt` before any consequential action (sending an email, issuing a refund, running a migration). The agent reasons and uses tools autonomously, but stops for a human at the moments that matter — and never loses its place.
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Agent doesn't remember previous turns | No checkpointer, or a new `thread_id` each call | Compile with a checkpointer and reuse the `thread_id` |
+| `interrupt()` raises / graph won't pause | No checkpointer on the graph | `compile(checkpointer=...)` — it's required for interrupts |
+| Resume does nothing | Re-sent the input instead of a `Command` | Resume with `graph.invoke(Command(resume=value), config)` |
+| Memory lost on restart | Using `InMemorySaver` | Switch to `SqliteSaver` or a Postgres checkpointer |
+| Wrong conversation's history appears | Reused a `thread_id` across users | Use a unique `thread_id` per conversation/user |
+
+## Wrapping Up
+
+You've taken LangGraph from a [first linear graph](/tutorials/langgraph-build-your-first-graph), through a [tool-calling agent loop](/tutorials/langgraph-tool-calling-agents), to **durable, human-supervised agents** with persistent memory. From here, explore subgraphs for composing larger systems, the `Store` API for long-term cross-thread memory, and LangGraph Platform for deploying these graphs as managed, streaming services.

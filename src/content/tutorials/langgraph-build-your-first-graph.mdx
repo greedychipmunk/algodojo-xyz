@@ -1,0 +1,156 @@
+---
+title: "Build Your First LangGraph Graph"
+slug: "langgraph-build-your-first-graph"
+description: "Learn LangGraph by building from its core idea: agents as state machines. You'll define a typed state, wire nodes and edges, compile a graph, and add an LLM node — the foundation for controllable, durable agents."
+tier: "free"
+category: "ai"
+tags: ["langgraph", "langchain", "ai-agents", "python", "beginner"]
+difficulty: "beginner"
+estimatedReadTime: 11
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## What Is LangGraph?
+
+[LangGraph](https://langchain-ai.github.io/langgraph/) is a low-level orchestration framework for building **stateful** AI applications. Where frameworks like CrewAI or AutoGen hand you high-level "agents" and "teams," LangGraph gives you something more fundamental: a way to model your application as a **graph** of nodes that read and update a shared state.
+
+That lower level of control is the point. Because everything flows through an explicit state object and a defined graph, you get durable execution, precise control over branching and loops, and first-class human-in-the-loop and memory. It's why LangGraph is often used to *build* higher-level agent frameworks, not just apps.
+
+The mental model is a **state machine**:
+
+- **State** — a typed object passed between steps
+- **Nodes** — functions that receive the state and return an update to it
+- **Edges** — connections that decide which node runs next
+- **`START` / `END`** — the graph's entry and exit points
+
+## Prerequisites
+
+Python 3.10+ and (for the LLM section) an OpenAI API key.
+
+```bash
+pip install langgraph langchain-openai
+export OPENAI_API_KEY="sk-..."
+```
+
+## Step 1: Define the State
+
+State is a `TypedDict`. Every node receives the current state and returns a dictionary with the keys it wants to update.
+
+```python
+from typing import TypedDict
+
+class State(TypedDict):
+    topic: str
+    joke: str
+```
+
+## Step 2: Write Nodes
+
+A node is just a function: `state in → partial update out`. You return only the keys you're changing.
+
+```python
+def write_setup(state: State) -> dict:
+    return {"joke": f"Why did the {state['topic']} cross the road?"}
+
+def write_punchline(state: State) -> dict:
+    return {"joke": state["joke"] + " ...To get to the other side!"}
+```
+
+## Step 3: Wire the Graph
+
+Add the nodes, then connect them with edges. `START` points at the first node; the last node points at `END`.
+
+```python
+from langgraph.graph import StateGraph, START, END
+
+builder = StateGraph(State)
+builder.add_node("setup", write_setup)
+builder.add_node("punchline", write_punchline)
+
+builder.add_edge(START, "setup")
+builder.add_edge("setup", "punchline")
+builder.add_edge("punchline", END)
+
+graph = builder.compile()
+```
+
+`compile()` validates the graph and returns a runnable. Invoke it with an initial state:
+
+```python
+result = graph.invoke({"topic": "chicken"})
+print(result["joke"])
+# Why did the chicken cross the road? ...To get to the other side!
+```
+
+That's the entire LangGraph loop: **state flows through nodes along edges**. No LLM required — the graph is the star.
+
+## Reducers: How State Updates Merge
+
+By default, returning a key *replaces* its value (that's why `write_punchline` had to read the existing joke and concatenate). But for things like chat history you want to *append*. LangGraph controls this with **reducers** — functions that say how an update merges into the current value.
+
+The built-in `add_messages` reducer appends messages instead of overwriting them. You attach it with `Annotated`:
+
+```python
+from typing import Annotated, TypedDict
+from langgraph.graph.message import add_messages
+
+class ChatState(TypedDict):
+    # New messages are appended to the list, not replaced.
+    messages: Annotated[list, add_messages]
+```
+
+## Step 4: Add an LLM Node
+
+Now make a node call a model. The node reads the running `messages`, calls the LLM, and returns the reply — which `add_messages` appends.
+
+```python
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+
+llm = ChatOpenAI(model="gpt-4o")
+
+def chatbot(state: ChatState) -> dict:
+    return {"messages": [llm.invoke(state["messages"])]}
+
+builder = StateGraph(ChatState)
+builder.add_node("chatbot", chatbot)
+builder.add_edge(START, "chatbot")
+builder.add_edge("chatbot", END)
+graph = builder.compile()
+
+result = graph.invoke(
+    {"messages": [{"role": "user", "content": "Explain LangGraph in one sentence."}]}
+)
+print(result["messages"][-1].content)
+```
+
+## invoke vs. stream
+
+`invoke` runs the whole graph and returns the final state. `stream` emits the state as each node finishes — great for watching progress or surfacing tokens in a UI:
+
+```python
+for step in graph.stream(
+    {"messages": [{"role": "user", "content": "Explain LangGraph in one sentence."}]},
+    stream_mode="values",
+):
+    step["messages"][-1].pretty_print()
+```
+
+`stream_mode="values"` emits the full state after each step. Other modes include `"updates"` (just the change from each node) and `"messages"` (token-by-token LLM output).
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Chat history keeps getting overwritten | No reducer on `messages` | Annotate it with `add_messages` |
+| `KeyError` reading a state field | Node returned the whole state, not an update | Return only the keys you're changing |
+| Graph never ends | A node has no path to `END` | Add an edge to `END` (or a conditional edge that can reach it) |
+| `ValueError` on `compile()` | Node referenced in an edge wasn't added | Add every node before wiring edges to it |
+
+## Where to Go Next
+
+You can now build a graph by hand. Next, [Tool-Calling Agents in LangGraph](/tutorials/langgraph-tool-calling-agents) adds conditional edges and a tool-execution loop — turning this linear graph into a real agent that decides what to do.
+
+After that, [Memory and Human-in-the-Loop with LangGraph](/tutorials/langgraph-memory-and-human-in-the-loop) covers the persistence layer that makes LangGraph agents durable across turns and sessions.

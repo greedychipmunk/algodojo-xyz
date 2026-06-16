@@ -1,0 +1,152 @@
+---
+title: "Tool-Calling Agents in LangGraph"
+slug: "langgraph-tool-calling-agents"
+description: "Build a ReAct-style agent in LangGraph two ways: the one-line prebuilt, and from scratch with a conditional edge and a tool loop. Understand exactly how the agent decides when to call tools and when to stop."
+tier: "free"
+category: "ai"
+tags: ["langgraph", "langchain", "ai-agents", "tools", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## The Agent Loop
+
+The graph from the [first tutorial](/tutorials/langgraph-build-your-first-graph) ran in a straight line. A real agent needs to **loop**: call the model, and if it wants to use a tool, run the tool and feed the result back — repeating until the model produces a final answer. This is the **ReAct** (Reason + Act) pattern.
+
+LangGraph expresses that loop with a **conditional edge**: after the model node, branch to a tool node if there's a tool call, otherwise finish. We'll build it the easy way first, then from scratch so you understand what's happening.
+
+## Setup
+
+```bash
+pip install langgraph langchain-openai
+export OPENAI_API_KEY="sk-..."
+```
+
+Define a tool with the `@tool` decorator. As with most agent frameworks, the type hints define the argument schema and the docstring tells the model when to use it.
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    # Placeholder — call a real weather API here.
+    return f"It's 22°C and sunny in {city}."
+```
+
+## The Easy Way: create_react_agent
+
+LangGraph ships a prebuilt that wires the whole loop for you:
+
+```python
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+
+model = ChatOpenAI(model="gpt-4o")
+agent = create_react_agent(model, tools=[get_weather])
+
+result = agent.invoke(
+    {"messages": [{"role": "user", "content": "What's the weather in Tokyo?"}]}
+)
+print(result["messages"][-1].content)
+```
+
+That's production-ready and what you'll reach for most days. But it hides the mechanics — so let's build the same thing ourselves.
+
+## The From-Scratch Way: A Tool Loop
+
+Three pieces make the loop work:
+
+1. An **agent node** — the LLM, *bound* to the tools so it can emit tool calls.
+2. A **tool node** — `ToolNode`, which executes any tool calls in the last message.
+3. A **conditional edge** — `tools_condition`, which routes to the tool node if the model asked for a tool, or to `END` if it didn't.
+
+```python
+from typing import Annotated, TypedDict
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+
+tools = [get_weather]
+llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)  # let the model emit tool calls
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def agent(state: State) -> dict:
+    return {"messages": [llm.invoke(state["messages"])]}
+
+builder = StateGraph(State)
+builder.add_node("agent", agent)
+builder.add_node("tools", ToolNode(tools))
+
+builder.add_edge(START, "agent")
+# After the agent runs, decide: call tools, or finish?
+builder.add_conditional_edges("agent", tools_condition)
+# After tools run, loop back to the agent to interpret the results.
+builder.add_edge("tools", "agent")
+
+graph = builder.compile()
+```
+
+Run it:
+
+```python
+result = graph.invoke(
+    {"messages": [{"role": "user", "content": "What's the weather in Tokyo?"}]}
+)
+print(result["messages"][-1].content)
+```
+
+### How the Conditional Edge Works
+
+`tools_condition` inspects the **last message** in state. If the model produced tool calls, it returns `"tools"` (routing to the node named `tools`); otherwise it returns `END`. That single branch is the entire decision:
+
+```text
+START → agent → (tool calls?) ──yes──→ tools → agent → ...
+                       │
+                       └──no──→ END
+```
+
+The `tools → agent` edge is what makes it a loop: after the tool runs, control returns to the agent, which now sees the tool result and can either call another tool or write its final answer. `create_react_agent` builds this exact graph for you.
+
+> **Important:** the model only emits tool calls if you call `.bind_tools(tools)`. A common bug is binding the tools to the agent node but forgetting them on the `ToolNode`, or vice versa — both need the same tool list.
+
+## Streaming the Agent's Steps
+
+Use `stream` with `stream_mode="values"` to watch each turn — you'll see the tool call, the tool result, and the final answer:
+
+```python
+for step in graph.stream(
+    {"messages": [{"role": "user", "content": "What's the weather in Tokyo?"}]},
+    stream_mode="values",
+):
+    step["messages"][-1].pretty_print()
+```
+
+## Why Build It By Hand?
+
+The prebuilt is perfect until you need to customize the loop — and real agents usually do:
+
+- Insert a **validation node** between the tool and the agent
+- Add a **second conditional edge** that routes to different tool sets
+- Cap iterations, or branch to a human for approval (next tutorial)
+
+Because you own the graph, every one of those is just another node or edge.
+
+## Common Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Model never calls the tool | Tools not bound to the model | Use `llm.bind_tools(tools)` for the agent node |
+| `KeyError: 'tools'` from the conditional edge | The tool node isn't named `tools` | Name it `"tools"`, or pass a mapping to `add_conditional_edges` |
+| Agent answers once and stops mid-task | Missing the `tools → agent` loop edge | Add `builder.add_edge("tools", "agent")` |
+| Infinite tool loop | Model keeps re-calling tools | Set a recursion limit, or add a max-iterations guard |
+
+## Where to Go Next
+
+Your agent can reason and act, but it forgets everything between runs. In [Memory and Human-in-the-Loop with LangGraph](/tutorials/langgraph-memory-and-human-in-the-loop), you'll add a checkpointer for durable multi-turn memory and pause the graph to bring a human into the decision.
