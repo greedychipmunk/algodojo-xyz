@@ -1,64 +1,183 @@
 ---
-title: "Introduction to AI Agents"
+title: "Introduction to AI Agents: Build the Loop From Scratch"
 slug: "intro-to-ai-agents"
-description: "Learn what AI agents are, how they reason, and the basic architecture behind them."
+description: "Understand what an AI agent really is by building one yourself — no framework. In ~40 lines of Python you'll implement the reason → act → observe loop with OpenAI tool calling, then prove it solves a task a plain prompt gets wrong."
 tier: "free"
 category: "ai"
 difficulty: "beginner"
-estimatedReadTime: 8
+estimatedReadTime: 11
 publishedAt: "2026-04-18T09:00:00.000Z"
-updatedAt: "2026-04-18T09:00:00.000Z"
+updatedAt: "2026-06-16"
 author: "Algo Dojo"
 tags:
-  - "AI agents"
-  - "agent architecture"
-  - "LLMs"
-  - "workflow design"
+  - "ai-agents"
+  - "tool-calling"
+  - "openai"
+  - "python"
+  - "beginner"
 ---
 
-# Introduction to AI Agents
+## What Makes Something an "Agent"?
 
-AI agents are systems that can observe their environment, reason about what to do next, and take actions toward a goal. Instead of producing a single response, an agent often chains together multiple steps, using tools, memory, and feedback loops to complete a task.
+A chatbot produces one response and stops. An **agent** runs a loop: it reasons about a goal, optionally **calls a tool**, **observes** the result, and decides whether to continue — repeating until the task is done.
 
-## What makes an agent different?
+Frameworks like CrewAI, AutoGen, and LangGraph hide this loop behind nice abstractions. That's great for building, but it makes the core idea feel like magic. The fastest way to actually *understand* agents is to build the loop yourself, once, with nothing but the OpenAI SDK. That's the skill you'll walk away with — and it transfers directly to reading and debugging any framework.
 
-A regular chatbot responds to a prompt. An AI agent can plan, call tools, evaluate results, and continue until it reaches an objective. That makes agents useful for workflows like research, support triage, content drafting, and data retrieval.
-
-### Core building blocks
-
-Most agents include a few common parts:
-
-- A model that can reason over text or structured inputs
-- A set of tools the model can call
-- Short-term memory for the current task
-- Guardrails that keep actions within safe boundaries
-
-## A simple architecture
-
-At a high level, the loop looks like this:
-
-1. Receive a goal from the user.
-2. Decide whether more information is needed.
-3. Call a tool or make a plan.
-4. Evaluate the result.
-5. Continue until the task is complete.
-
-```python
-from typing import Any
-
-
-def run_agent_step(goal: str, context: dict[str, Any]) -> str:
-    if "status" not in context:
-        context["status"] = "planning"
-
-    if context["status"] == "planning":
-        context["status"] = "tool_call"
-        return f"Planning next step for: {goal}"
-
-    context["status"] = "done"
-    return f"Finished: {goal}"
+```text
+goal → [ model decides ] ──tool call?──yes──► run tool ──► feed result back ──┐
+              ▲                                                                │
+              └────────────────────────────────────────────────────────── observe
+              │
+              └──no (final answer)──► done
 ```
 
-## Why this matters
+## Setup
 
-When you understand the architecture, it becomes easier to decide where to add retrieval, when to use tools, and how to keep the system reliable. In the next tutorial, we'll take this basic pattern and turn it into something more practical.
+```bash
+pip install openai
+export OPENAI_API_KEY="sk-..."
+```
+
+## Step 1: Define Tools
+
+A tool is a function plus a JSON schema that tells the model how to call it. We'll give the agent two: exact arithmetic and a (fake) live currency rate — both things an LLM can't do reliably on its own.
+
+```python
+import json
+
+def calculator(expression: str) -> str:
+    """Evaluate a basic arithmetic expression like '240 * 0.15'."""
+    allowed = set("0123456789+-*/(). ")
+    if not set(expression) <= allowed:
+        return "Error: only numbers and + - * / ( ) allowed."
+    return str(eval(expression, {"__builtins__": {}}))
+
+def exchange_rate(base: str, quote: str) -> str:
+    """Return the exchange rate from one currency to another (live in real life)."""
+    rates = {("USD", "EUR"): 0.92, ("USD", "GBP"): 0.79}
+    return str(rates.get((base.upper(), quote.upper()), "unknown"))
+
+# The schema the model sees. `name` must match the Python function.
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "description": "Evaluate a basic arithmetic expression.",
+            "parameters": {
+                "type": "object",
+                "properties": {"expression": {"type": "string"}},
+                "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "exchange_rate",
+            "description": "Get the exchange rate between two 3-letter currency codes.",
+            "parameters": {
+                "type": "object",
+                "properties": {"base": {"type": "string"}, "quote": {"type": "string"}},
+                "required": ["base", "quote"],
+            },
+        },
+    },
+]
+
+DISPATCH = {"calculator": calculator, "exchange_rate": exchange_rate}
+```
+
+## Step 2: The Agent Loop
+
+This is the whole idea. Call the model with the tools available. If it asks for a tool, run the function, append the result, and loop. If it doesn't, it's done.
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+def run_agent(question: str, max_steps: int = 5) -> tuple[str, int]:
+    messages = [
+        {"role": "system", "content": "You are a precise assistant. Use tools for math and live data instead of guessing."},
+        {"role": "user", "content": question},
+    ]
+    for step in range(1, max_steps + 1):
+        completion = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            tools=TOOLS,
+        )
+        msg = completion.choices[0].message
+        messages.append(msg)  # record what the model said/asked
+
+        if not msg.tool_calls:
+            return msg.content, step  # final answer — we're done
+
+        # Otherwise, run each requested tool and feed the results back.
+        for call in msg.tool_calls:
+            args = json.loads(call.function.arguments)
+            result = DISPATCH[call.function.name](**args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": str(result),
+            })
+    return "Stopped: hit max steps.", max_steps
+```
+
+## Step 3: Watch It Work
+
+Give it a task that needs two tool calls in sequence — compute a number, then convert it:
+
+```python
+answer, steps = run_agent(
+    "What is 15% of 240, and how much is that in euros?"
+)
+print(f"{answer}\n(solved in {steps} model turns)")
+# 36 USD is about 33.12 EUR.
+# (solved in 3 model turns)
+```
+
+The agent called `calculator("240 * 0.15")` → `36`, then `exchange_rate("USD","EUR")` → `0.92`, multiplied, and wrote the answer. You didn't orchestrate any of that — the *loop* did.
+
+## Measuring the Difference
+
+"Agents are powerful" is a claim. Here's how to make it a result: run the same questions with tools **off** vs **on** and check the answers.
+
+```python
+def ask_no_tools(question: str) -> str:
+    completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": question + " Answer with just the number."}],
+    )
+    return completion.choices[0].message.content
+
+TESTS = [
+    ("What is 4825 * 7919?", "38209175"),
+    ("What is 15% of 240 in euros at the current rate?", "33.12"),
+]
+
+for q, expected in TESTS:
+    plain = ask_no_tools(q)
+    agent, _ = run_agent(q)
+    print(f"Q: {q}\n  no-tools: {plain.strip()[:40]}\n  agent:    {agent.strip()[:40]}\n  expected: {expected}\n")
+```
+
+The no-tools model will often fumble the large multiplication and *cannot* know a live rate — it guesses. The agent gets both right because it can actually compute and look up. That gap (correct vs. plausible-but-wrong) is the entire value proposition, and now you can demonstrate it instead of asserting it.
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| Forgetting to append the assistant message | The next call loses the pending tool call | `messages.append(msg)` before running tools |
+| Not returning a `tool` message per call | The API errors on the next turn | Append one `{"role":"tool", "tool_call_id":...}` for **every** tool call |
+| Tool `name` ≠ Python function | `KeyError` in dispatch | Keep the schema `name` and `DISPATCH` keys in sync |
+| No `max_steps` guard | A confused agent loops forever | Cap the loop and fail loudly |
+
+## Where to Go Next
+
+You've built the loop that every agent framework wraps. Two natural next steps:
+
+- See the same loop with a higher-level API in [Introduction to Building AI Agents with Python](/tutorials/intro-to-ai-agents-python) (LangChain).
+- Let a framework manage the loop, memory, and multi-agent coordination for you — start with [Build Your First CrewAI Crew](/tutorials/crewai-build-your-first-crew) or [Build Your First LangGraph Graph](/tutorials/langgraph-build-your-first-graph).

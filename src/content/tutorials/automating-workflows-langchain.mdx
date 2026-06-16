@@ -1,219 +1,199 @@
 ---
 title: "Automating Business Workflows with LangChain"
-description: "Build practical workflow automation using LangChain agents and tool integrations. Learn to automate document processing, email handling, and data pipelines with AI."
+slug: "automating-workflows-langchain"
+description: "Build an invoice-processing agent with LangChain's modern create_agent API: extract structured data, route it through tools, and measure extraction accuracy on a labeled set so you can prove the automation is correct before it touches production."
 tier: "free"
 category: "automation"
-tags: ["langchain", "automation", "workflows", "python", "intermediate"]
+tags: ["langchain", "automation", "structured-output", "evaluation", "python", "intermediate"]
 difficulty: "intermediate"
-estimatedReadTime: 12
+estimatedReadTime: 13
 publishedAt: "2025-04-01"
-updatedAt: "2025-04-01"
+updatedAt: "2026-06-16"
 author: "Algo Dojo"
 ---
 
-## Why Automate with AI Agents?
+## Why Agents for Workflows
 
-Traditional automation tools (cron jobs, Zapier, Airflow) are great for **deterministic** workflows — processes where every step is predictable. But many business workflows involve:
+Deterministic tools (cron, Zapier, Airflow) are perfect for predictable steps. But real business workflows hit **unstructured** inputs — emails, PDFs, chat — where the hard part is *understanding* the content. That's where an LLM agent earns its place: it reads the mess, extracts structure, and then hands off to ordinary, reliable code.
 
-- Unstructured data (emails, documents, chat messages)
-- Decision-making that requires judgment
-- Edge cases that break rigid rule-based systems
+We'll build an **invoice-processing** workflow: extract the fields from raw invoice text, then route them to downstream systems. Crucially, we'll **measure extraction accuracy** on a labeled set first — because an extractor you haven't measured is one you can't trust with money.
 
-AI agents fill this gap by combining the **reliability of automation** with the **flexibility of human reasoning**.
+## Setup
 
-## Architecture for Workflow Automation
-
-A well-designed workflow automation system has four layers:
-
-### 1. Trigger Layer
-
-What kicks off the workflow? This could be:
-
-- A new email arriving
-- A file being uploaded
-- A scheduled interval
-- An API webhook
-
-### 2. Processing Layer
-
-The AI agent that orchestrates the workflow:
-
-```python
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
+```bash
+pip install langchain langchain-openai pydantic
+export OPENAI_API_KEY="sk-..."
 ```
 
-### 3. Tool Layer
+## Step 1: Define the Structured Output
 
-Functions the agent can call to interact with systems:
+The reliability win is forcing extraction into a typed schema instead of free-form text. Define the shape with Pydantic.
 
 ```python
-from langchain.tools import tool
-import json
+from pydantic import BaseModel, Field
 
-@tool
-def extract_invoice_data(text: str) -> str:
-    """Extract structured data from invoice text.
-    Returns JSON with vendor, amount, date, and line items."""
-    # In production, this could use an LLM or specialized model
-    prompt = f"Extract invoice data from: {text}"
-    response = llm.invoke(prompt)
-    return response.content
-
-@tool
-def save_to_database(data: str) -> str:
-    """Save extracted data to the database.
-    Expects JSON string with invoice fields."""
-    parsed = json.loads(data)
-    # Database insertion logic here
-    return f"Saved invoice from {parsed.get('vendor', 'unknown')}"
-
-@tool
-def send_notification(message: str) -> str:
-    """Send a Slack notification about processed invoices."""
-    # Slack API call here
-    return f"Notification sent: {message}"
+class Invoice(BaseModel):
+    vendor: str = Field(description="The company that issued the invoice.")
+    invoice_number: str
+    total: float = Field(description="The total amount due, as a number.")
+    due_date: str = Field(description="Due date in YYYY-MM-DD format.")
 ```
 
-### 4. Output Layer
+## Step 2: Extract With a Typed Model
 
-Where results go — databases, notifications, dashboards, or downstream systems.
-
-## Building an Invoice Processing Workflow
-
-Let's build a complete workflow that automatically processes invoices from email attachments.
-
-### The Agent Setup
+`with_structured_output` makes the model return an `Invoice` object directly — no JSON parsing, no regex.
 
 ```python
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.chat_models import init_chat_model
 
-tools = [extract_invoice_data, save_to_database, send_notification]
+llm = init_chat_model("openai:gpt-4o")
+extractor = llm.with_structured_output(Invoice)
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are an invoice processing agent. When given invoice text:
-1. Extract the structured data (vendor, amount, date, line items)
-2. Save it to the database
-3. Send a notification with a summary
-
-Always validate extracted data before saving."""),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+def extract_invoice(text: str) -> Invoice:
+    return extractor.invoke(f"Extract the invoice fields from:\n\n{text}")
 ```
 
-### Processing an Invoice
+Try it:
 
 ```python
-invoice_text = """
+sample = """
 INVOICE #2025-0142
 From: Acme Cloud Services
-Date: March 15, 2025
-Due: April 15, 2025
-
-Line Items:
-- GPU Compute (100 hrs) ............ $4,500.00
-- Storage (2TB, 30 days) ........... $150.00
-- API Gateway (1M requests) ........ $89.00
-
-Subtotal: $4,739.00
-Tax (8%): $379.12
+Date: March 15, 2025  Due: April 15, 2025
+GPU Compute (100 hrs) .... $4,500.00
+Storage (2TB) ........... $150.00
 Total Due: $5,118.12
 """
-
-result = executor.invoke({"input": f"Process this invoice:\n{invoice_text}"})
-print(result["output"])
+inv = extract_invoice(sample)
+print(inv.vendor, inv.total, inv.due_date)
+# Acme Cloud Services 5118.12 2025-04-15
 ```
 
-## Error Handling and Reliability
+## Step 3: Measure Extraction Accuracy
 
-Production workflows need robust error handling:
+Before wiring this into anything, find out how often it's *right*. Build a small labeled set — a few invoices paired with their known-correct fields — and score field by field. For money, the `total` and `vendor` fields are what matter most.
 
 ```python
-from langchain.callbacks import StdOutCallbackHandler
+EVAL = [
+    {"text": sample, "vendor": "Acme Cloud Services", "total": 5118.12, "due_date": "2025-04-15"},
+    {"text": "Bill from Globex Inc — Invoice 88. Amount due $1,200.00 by 2025-05-01.",
+     "vendor": "Globex Inc", "total": 1200.00, "due_date": "2025-05-01"},
+    {"text": "Initech statement #A-7. Pay $940.50 no later than June 3, 2025.",
+     "vendor": "Initech", "total": 940.50, "due_date": "2025-06-03"},
+]
 
-class WorkflowErrorHandler(StdOutCallbackHandler):
-    def on_tool_error(self, error: Exception, **kwargs) -> None:
-        # Log error, send alert, and queue for manual review
-        print(f"Tool error: {error}")
-        send_notification(f"Workflow error: {error}")
+def score():
+    field_hits = {"vendor": 0, "total": 0, "due_date": 0}
+    for case in EVAL:
+        inv = extract_invoice(case["text"])
+        field_hits["vendor"]   += inv.vendor.lower() == case["vendor"].lower()
+        field_hits["total"]    += abs(inv.total - case["total"]) < 0.01
+        field_hits["due_date"] += inv.due_date == case["due_date"]
+    n = len(EVAL)
+    for field, hits in field_hits.items():
+        print(f"{field:10} {hits}/{n} = {hits / n:.0%}")
 
-executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
-    verbose=True,
-    max_iterations=5,        # Prevent infinite loops
-    handle_parsing_errors=True,  # Graceful error recovery
-    callbacks=[WorkflowErrorHandler()],
-)
+score()
 ```
 
-## Patterns for Production Workflows
+A representative run:
 
-### Pattern 1: Human-in-the-Loop
+```text
+vendor     3/3 = 100%
+total      3/3 = 100%
+due_date   2/3 = 67%
+```
 
-For high-stakes decisions, add a human approval step:
+Now you know exactly where it's weak (date formats, here) — so you can tighten the prompt or add a normalizer *before* this ever touches an accounting system. That's the difference between "the demo worked" and "we measured 100% on totals across our test set."
+
+## Step 4: Orchestrate the Full Workflow
+
+With extraction trusted, wrap it and the downstream actions as tools and let `create_agent` run the workflow end to end.
 
 ```python
+from langchain.agents import create_agent
+from langchain.tools import tool
+
 @tool
-def request_human_approval(summary: str) -> str:
-    """Request human approval for invoices over $10,000.
-    Returns 'approved' or 'rejected'."""
-    # In production: send to approval queue, wait for response
-    return "approved"  # Placeholder
+def extract(text: str) -> str:
+    """Extract structured fields from raw invoice text."""
+    return extract_invoice(text).model_dump_json()
+
+@tool
+def save_invoice(invoice_json: str) -> str:
+    """Persist an extracted invoice (JSON) to the database."""
+    inv = Invoice.model_validate_json(invoice_json)
+    # ...real DB write here...
+    return f"Saved invoice {inv.invoice_number} from {inv.vendor}."
+
+@tool
+def notify(message: str) -> str:
+    """Send a Slack notification summarizing a processed invoice."""
+    # ...real Slack call here...
+    return f"Notified: {message}"
+
+agent = create_agent(
+    model="openai:gpt-4o",
+    tools=[extract, save_invoice, notify],
+    system_prompt=(
+        "You process invoices. Extract the fields, save them, then send a one-line "
+        "notification with the vendor and total. Flag any total over $10,000 for human review."
+    ),
+)
+
+result = agent.invoke({"messages": [{"role": "user", "content": f"Process this:\n{sample}"}]})
+print(result["messages"][-1].content)
 ```
 
-### Pattern 2: Batch Processing
+## Production Patterns
 
-Process multiple items efficiently:
-
-```python
-async def process_batch(invoices: list[str]) -> list[dict]:
-    results = []
-    for invoice in invoices:
-        result = await executor.ainvoke({"input": f"Process: {invoice}"})
-        results.append(result)
-    return results
-```
-
-### Pattern 3: Retry with Backoff
+A few additions turn this into something you can run unattended:
 
 ```python
-import asyncio
+# 1. Human-in-the-loop gate for high-value invoices
+@tool
+def request_approval(summary: str) -> str:
+    """Queue an invoice for human approval; returns 'approved' or 'rejected'."""
+    # send to an approval queue and wait...
+    return "approved"
 
-async def process_with_retry(input_text: str, max_retries: int = 3) -> dict:
-    for attempt in range(max_retries):
+# 2. Retry with backoff around the whole run
+import time
+
+def process_with_retry(text: str, retries: int = 3) -> str:
+    for attempt in range(retries):
         try:
-            return await executor.ainvoke({"input": input_text})
-        except Exception as e:
-            if attempt == max_retries - 1:
+            r = agent.invoke({"messages": [{"role": "user", "content": text}]})
+            return r["messages"][-1].content
+        except Exception:
+            if attempt == retries - 1:
                 raise
-            await asyncio.sleep(2 ** attempt)
-    raise RuntimeError("Max retries exceeded")
+            time.sleep(2 ** attempt)
 ```
 
-## Measuring Automation ROI
+Round it out with logging every extraction (your eval set grows from real traffic) and re-running `score()` on a schedule to catch drift.
 
-Track these metrics to quantify the value of your automation:
+## Putting a Number on the Value
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Processing time per invoice | 15 min | 30 sec | 30x faster |
-| Error rate | 5% | 0.2% | 96% reduction |
-| Invoices processed/day | 40 | 500+ | 12.5x throughput |
-| Staff hours on invoicing | 20/week | 2/week | 90% reduction |
+Once you've *measured* extraction quality, the ROI case writes itself. Plug your own figures into the same shape:
 
-## Next Steps
+| Metric | Manual | Automated | Source |
+|---|---|---|---|
+| Time per invoice | 15 min | ~30 sec | wall-clock |
+| Extraction accuracy (total) | — | measure it (`score()`) | your eval set |
+| Invoices/day per person | ~30 | hundreds | throughput |
 
-- Add more tool integrations (ERP systems, accounting software)
-- Implement observability with LangSmith for monitoring
-- Build a dashboard to track workflow metrics
-- Scale with async processing and queue-based architectures
+The point: lead with the accuracy number you actually measured, not a number you hope for.
 
-Ready to automate your business workflows? [Contact us](/contact) for a free consultation on how agentic AI can optimize your processes.
+## Common Pitfalls
+
+| Mistake | Why it hurts | Fix |
+|---|---|---|
+| Free-form text extraction | Brittle parsing; silent field errors | `with_structured_output(PydanticModel)` |
+| Shipping before measuring | You can't trust money fields you never tested | Score a labeled set field by field |
+| `AgentExecutor` from old guides | Pre-1.0 API | Use `create_agent` |
+| No human gate on large amounts | One bad extraction = a costly mistake | Route high totals to `request_approval` |
+
+## Where to Go Next
+
+You built a measured extraction workflow and orchestrated it with an agent. For the general build-then-measure recipe applied to classification, see [Workflow Automation with LLMs](/tutorials/workflow-automation-with-llms); to grow this into a multi-agent system, see [Build Your First CrewAI Crew](/tutorials/crewai-build-your-first-crew).

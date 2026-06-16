@@ -1,48 +1,159 @@
 ---
-title: "Building ML Pipelines That Scale"
+title: "Build a Reproducible ML Pipeline with scikit-learn"
 slug: "building-ml-pipelines"
-description: "A practical guide to preparing data, training models, evaluating results, and deploying pipelines."
+description: "Go from raw data to an evaluated, saved model in one runnable script. You'll build a scikit-learn Pipeline, beat a baseline, validate with cross-validation, and persist the artifact — the reproducible workflow real ML teams ship."
 tier: "premium"
 category: "ml"
 difficulty: "intermediate"
-estimatedReadTime: 15
+estimatedReadTime: 14
 publishedAt: "2026-04-25T09:00:00.000Z"
-updatedAt: "2026-04-28T09:00:00.000Z"
+updatedAt: "2026-06-16"
 author: "Algo Dojo"
 tags:
-  - "machine learning"
+  - "machine-learning"
+  - "scikit-learn"
   - "pipelines"
-  - "MLOps"
-  - "deployment"
+  - "evaluation"
+  - "python"
 ---
 
-# Building ML Pipelines That Scale
+## What You'll Build
 
-ML pipelines work best when each stage is explicit, repeatable, and testable. That means separating data preparation, training, evaluation, and deployment into clear steps that can be automated and monitored.
+A model that isn't measured is a liability. In this tutorial you'll build a complete, **reproducible** classification pipeline and, at every step, attach a number to it: a baseline to beat, test-set metrics, and a cross-validated score with error bars. By the end you'll be able to:
 
-## 1. Prepare the data
+- Wrap preprocessing + model into a single scikit-learn `Pipeline` (no train/serve skew)
+- Establish a **baseline** so you know whether your model is actually doing anything
+- Evaluate with the **right metrics** and **cross-validation**, not a single lucky split
+- Persist the trained artifact and reload it for inference
 
-Start with data contracts. Define what columns are required, what types they should be, and how missing values are handled. This reduces surprises later in the pipeline.
+We'll use a real diagnostic dataset that ships with scikit-learn (predict whether a tumor is malignant or benign), so the whole thing runs with no downloads.
 
-### Practical checks
+## Setup
 
-- Validate schema before training
-- Remove duplicate or obviously corrupted rows
-- Track dataset version and source
-- Log the number of samples at each stage
+```bash
+pip install scikit-learn joblib
+```
 
-## 2. Train the model
+## Step 1: Load and Sanity-Check the Data
 
-Training should be reproducible. Pin dependencies, seed your random number generators, and save model artifacts with metadata so you can recreate the experiment later.
+Reproducibility starts with a fixed split and a quick data contract. We `stratify` so both classes are represented proportionally in train and test.
 
-## 3. Evaluate consistently
+```python
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
 
-Don't rely on a single metric. Combine accuracy, precision, recall, latency, and business-specific KPIs to get a fuller picture of performance.
+X, y = load_breast_cancer(return_X_y=True, as_frame=True)
 
-## 4. Deploy with confidence
+# Data contract: fail fast if the shape isn't what we expect.
+assert X.isnull().sum().sum() == 0, "Unexpected missing values"
+assert set(y.unique()) == {0, 1}, "Expected a binary target"
+print(f"{len(X)} rows, {X.shape[1]} features, positive rate {y.mean():.0%}")
 
-A model is only useful if it can operate in production. Use batch jobs or real-time APIs depending on the use case, and include monitoring for drift, failures, and response quality.
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+```
 
-## 5. Iterate safely
+## Step 2: Establish a Baseline
 
-The most scalable pipelines are the ones teams can improve without fear. Add automated tests, canary releases, and alerting so you can ship changes without losing control.
+Before any modeling, answer: *what score does a trivial strategy get?* If your fancy model can't beat "always predict the majority class," something is wrong. This single habit catches a huge fraction of ML mistakes.
+
+```python
+from sklearn.dummy import DummyClassifier
+from sklearn.metrics import accuracy_score
+
+baseline = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
+base_acc = accuracy_score(y_test, baseline.predict(X_test))
+print(f"Baseline accuracy: {base_acc:.3f}")   # ~0.625
+```
+
+Now you have a bar to clear. Any real model must do meaningfully better than ~0.63.
+
+## Step 3: Build the Pipeline
+
+The key idea: bundle preprocessing and the estimator into **one** `Pipeline`. The scaler learns its parameters from the *training* data only and re-applies them at predict time — so you can't accidentally leak test statistics or forget a step in production.
+
+```python
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+
+pipe = Pipeline([
+    ("scale", StandardScaler()),
+    ("clf", LogisticRegression(max_iter=1000)),
+])
+
+pipe.fit(X_train, y_train)
+```
+
+> **Why a Pipeline and not separate steps?** If you scale the whole dataset before splitting, test-set information leaks into training and your metrics lie. A `Pipeline` makes the correct order structural, not something you have to remember.
+
+## Step 4: Evaluate With the Right Metrics
+
+Accuracy alone hides failures — especially with imbalanced classes. Use a full report (precision/recall/F1 per class):
+
+```python
+from sklearn.metrics import classification_report
+
+preds = pipe.predict(X_test)
+print(f"Pipeline accuracy: {accuracy_score(y_test, preds):.3f}")  # ~0.97
+print(classification_report(y_test, preds, target_names=["malignant", "benign"]))
+```
+
+You should see ~0.97 accuracy — comfortably above the 0.63 baseline — with high precision *and* recall on both classes. That's the comparison that tells you the model learned something real.
+
+## Step 5: Cross-Validate (Don't Trust One Split)
+
+A single test split can be lucky. **K-fold cross-validation** trains and evaluates on K different splits and reports the spread, so you know how stable the score is.
+
+```python
+from sklearn.model_selection import cross_val_score
+
+scores = cross_val_score(pipe, X, y, cv=5, scoring="f1")
+print(f"5-fold F1: {scores.mean():.3f} ± {scores.std():.3f}")  # ~0.975 ± 0.013
+```
+
+A tight band (small ±) means the result is reliable; a wide one means your single-split number was partly luck. Report the mean **and** the deviation — that's the difference between "97%" and "97% ± 1%."
+
+## Step 6: Persist and Reload
+
+Save the *entire* pipeline (preprocessing included) as one artifact. Inference code then loads one object and calls `predict` — no risk of applying the wrong scaling.
+
+```python
+import joblib
+
+joblib.dump(pipe, "tumor_model.joblib")
+
+# Later, in your serving code:
+model = joblib.load("tumor_model.joblib")
+sample = X_test.iloc[[0]]
+print("prediction:", model.predict(sample)[0], "proba:", model.predict_proba(sample)[0].round(3))
+```
+
+> **Security note:** `joblib` (like `pickle`) executes code on load, so only ever load artifacts you produced or fully trust. For untrusted model exchange, prefer a safe format such as ONNX or `skops`.
+
+## Scaling Up From Here
+
+The same structure scales to messier, real-world data:
+
+- **Mixed column types?** Swap `StandardScaler` for a `ColumnTransformer` that scales numerics and one-hot-encodes categoricals — still inside the Pipeline.
+- **Tuning?** Wrap the pipeline in `GridSearchCV`; it cross-validates every hyperparameter combination without leakage.
+- **Monitoring?** Log inputs and predictions in production and periodically re-run `cross_val_score` on fresh labeled data to catch drift.
+
+Because everything lives in one `Pipeline` object, each of these is an incremental change, not a rewrite.
+
+## Common Pitfalls
+
+| Mistake | Why it hurts | Fix |
+|---|---|---|
+| Scaling before the train/test split | Leaks test stats → inflated, fake scores | Put the scaler *inside* the Pipeline |
+| No baseline | "90% accuracy" may be worse than guessing | Compare against `DummyClassifier` |
+| Reporting accuracy only | Hides poor recall on the minority class | Use `classification_report` / F1 |
+| Trusting a single split | Score may be luck of the draw | `cross_val_score` with the mean ± std |
+| Saving only the model | Serving forgets the preprocessing | `joblib.dump` the whole Pipeline |
+
+## Recap & Next Steps
+
+You built a pipeline that is reproducible (fixed seed, structural preprocessing), measured (baseline → test metrics → cross-validation), and deployable (one saved artifact). That measure-everything workflow is the reusable skill — it's what separates a notebook experiment from something a team can ship and trust.
+
+Next, try feeding a model's predictions into an automated workflow: see [Workflow Automation with LLMs](/tutorials/workflow-automation-with-llms) for the build-then-measure approach applied to LLM systems.
