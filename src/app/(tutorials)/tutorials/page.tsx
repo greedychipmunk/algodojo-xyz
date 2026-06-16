@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { TutorialGrid } from "@/components/tutorials/tutorial-grid";
 import { getAllTutorials } from "@/lib/content";
@@ -21,6 +22,33 @@ export default async function TutorialsPage() {
           Hands-on guides for building with AI, ML, and automation. From
           beginner concepts to advanced implementations.
         </p>
+
+        <Link
+          href="/tutorials/frameworks"
+          className="group mt-8 flex flex-col gap-1 rounded-xl border border-border bg-bg-card p-5 shadow-card transition-all duration-200 hover:border-border-hover hover:bg-bg-card-hover hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+              New · Guide
+            </span>
+            <span className="mt-1 block text-lg font-semibold text-text-primary">
+              CrewAI vs. AutoGen vs. LangGraph — which should you use?
+            </span>
+            <span className="mt-1 block text-sm text-text-secondary">
+              Compare the three agent frameworks and find your starting point.
+            </span>
+          </span>
+          <span className="shrink-0 font-semibold text-accent">
+            Read the guide
+            <span
+              aria-hidden="true"
+              className="ml-2 inline-block transition-transform duration-200 group-hover:translate-x-1"
+            >
+              →
+            </span>
+          </span>
+        </Link>
+
         <div className="mt-12">
           <TutorialGrid tutorials={tutorials} />
         </div>
