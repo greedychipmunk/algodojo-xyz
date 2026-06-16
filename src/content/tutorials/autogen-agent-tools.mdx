@@ -1,0 +1,144 @@
+---
+title: "Give Your AutoGen Agent Tools"
+slug: "autogen-agent-tools"
+description: "Turn an AutoGen assistant from a talker into a doer. Learn how to give agents Python functions as tools, control how results are reflected back, and wrap functions with explicit schemas using FunctionTool."
+tier: "free"
+category: "ai"
+tags: ["autogen", "ai-agents", "tools", "function-calling", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 12
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## Why Tools Matter
+
+The agent from the [first tutorial](/tutorials/autogen-build-your-first-agent) can only reason from what the model already knows. It can't check today's weather, query your database, or do reliable arithmetic. **Tools** close that gap: they're functions the agent can call, with the model deciding *when* to call them and *what* arguments to pass.
+
+This tutorial builds directly on the first one — make sure you have `autogen-agentchat` and `autogen-ext[openai]` installed.
+
+## Tools Are Just Python Functions
+
+In AutoGen, the simplest tool is an ordinary function with **type hints and a docstring**. The type hints become the tool's argument schema; the docstring tells the model what the tool does and when to use it. Both matter — a vague docstring means the agent won't know when to reach for the tool.
+
+```python
+async def get_weather(city: str) -> str:
+    """Get the current weather for a given city."""
+    # In a real tool you'd call a weather API here.
+    return f"The weather in {city} is 23°C and sunny."
+```
+
+Pass it to the agent through the `tools` argument:
+
+```python
+from autogen_agentchat.agents import AssistantAgent
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+model_client = OpenAIChatCompletionClient(model="gpt-4o")
+
+agent = AssistantAgent(
+    name="weather_agent",
+    model_client=model_client,
+    tools=[get_weather],
+    system_message="You are a helpful assistant. Use your tools when they apply.",
+    reflect_on_tool_use=True,
+)
+```
+
+Tools can be **sync or async** functions. AutoGen handles calling them and feeding the results back to the model for you.
+
+## Reflecting on Tool Results
+
+Notice `reflect_on_tool_use=True`. This controls what the agent's *final* message is:
+
+- **`reflect_on_tool_use=True`** — after the tool returns, the model gets the result and writes a natural-language answer (e.g., *"It's currently 23°C and sunny in Paris."*). Use this for conversational responses.
+- **`reflect_on_tool_use=False`** (the default) — the tool's raw return value becomes the final message. Use this when you want the structured tool output directly, with no extra LLM call.
+
+Run it and watch the agent call the tool, then summarize:
+
+```python
+import asyncio
+from autogen_agentchat.ui import Console
+
+async def main() -> None:
+    await Console(agent.run_stream(task="What's the weather like in Paris?"))
+    await model_client.close()
+
+asyncio.run(main())
+```
+
+In the streamed output you'll see a `ToolCallRequestEvent` (the agent deciding to call `get_weather`), a `ToolCallExecutionEvent` (the result), and finally the agent's text reply.
+
+## A More Useful Example
+
+Tools shine when they do something the model genuinely can't. Here's a calculator the agent can lean on for exact arithmetic, plus a lookup tool:
+
+```python
+def calculate(expression: str) -> str:
+    """Evaluate a basic arithmetic expression, e.g. '128 * 47 + 9'.
+    Supports + - * / and parentheses only."""
+    allowed = set("0123456789+-*/(). ")
+    if not set(expression) <= allowed:
+        return "Error: only numbers and + - * / ( ) are allowed."
+    try:
+        return str(eval(expression, {"__builtins__": {}}))
+    except Exception as exc:  # noqa: BLE001
+        return f"Error: {exc}"
+
+def get_order_status(order_id: str) -> str:
+    """Look up the shipping status for a customer order by its ID."""
+    fake_db = {"A1001": "shipped", "A1002": "processing"}
+    return fake_db.get(order_id, "not found")
+
+agent = AssistantAgent(
+    name="support_agent",
+    model_client=model_client,
+    tools=[calculate, get_order_status],
+    system_message="You are a support assistant. Use tools for calculations and order lookups instead of guessing.",
+    reflect_on_tool_use=True,
+)
+```
+
+Now a prompt like *"What's the status of order A1001, and what's 19% tax on $240?"* will trigger **both** tools, and the agent will weave the results into one answer.
+
+> **Key lesson:** an agent without a tool will happily *invent* an order status or do shaky mental math. If correctness matters, give it a tool and tell it — in the system message — to use the tool rather than guess.
+
+## Explicit Schemas with FunctionTool
+
+Relying on the function name and docstring is convenient, but sometimes you want an explicit, separate description — especially when the function name isn't self-explanatory or you're exposing a third-party function. Wrap it with `FunctionTool`:
+
+```python
+from autogen_core.tools import FunctionTool
+
+def query_kb(q: str) -> str:
+    return run_vector_search(q)  # your existing search function
+
+kb_tool = FunctionTool(
+    query_kb,
+    description="Search the internal knowledge base and return the top matching passages for a question.",
+)
+
+agent = AssistantAgent(
+    name="kb_agent",
+    model_client=model_client,
+    tools=[kb_tool],
+    system_message="Answer questions using the knowledge base tool. Cite what you find.",
+    reflect_on_tool_use=True,
+)
+```
+
+`FunctionTool` gives you a clear place to write the description the model sees, decoupled from the function's own docstring. Functionally, passing a plain function and passing `FunctionTool(func, description=...)` are equivalent — choose based on how much control you want over the surfaced schema.
+
+## Debugging Tool Use
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Agent never calls the tool | Weak docstring/description | State plainly what the tool does and when to use it |
+| Agent fabricates data anyway | No instruction to prefer the tool | Tell it in `system_message` to use tools instead of guessing |
+| Final reply is raw tool output | `reflect_on_tool_use` is `False` | Set `reflect_on_tool_use=True` for a natural-language answer |
+| `TypeError` when the tool runs | Missing/loose type hints | Annotate every parameter so the schema is correct |
+
+## Where to Go Next
+
+Your agent can now act on the world. The next step is collaboration: in [Multi-Agent Teams in AutoGen](/tutorials/autogen-multi-agent-teams) you'll connect several specialized agents — and their tools — into a team that works through a problem together.
