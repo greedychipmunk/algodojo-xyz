@@ -1,139 +1,138 @@
 ---
-title: "Introduction to Building AI Agents with Python"
-description: "Learn the fundamentals of creating autonomous AI agents using Python. This beginner-friendly guide covers agent architecture, tool use, and building your first agent from scratch."
+title: "Building AI Agents with Python and LangChain"
+slug: "intro-to-ai-agents-python"
+description: "Build a tool-using agent with LangChain's modern create_agent API in a dozen lines — then measure whether it actually picks the right tool for each request, so you ship on evidence instead of vibes."
 tier: "free"
 category: "ai"
-tags: ["python", "ai-agents", "langchain", "openai", "beginner"]
+tags: ["langchain", "ai-agents", "tools", "evaluation", "python", "beginner"]
 difficulty: "beginner"
-estimatedReadTime: 8
+estimatedReadTime: 10
 publishedAt: "2025-03-15"
-updatedAt: "2025-03-15"
+updatedAt: "2026-06-16"
 author: "Algo Dojo"
 ---
 
-## What Are AI Agents?
+## What You'll Build
 
-AI agents are software systems that can **perceive their environment**, **make decisions**, and **take actions** to achieve specific goals. Unlike traditional automation scripts that follow rigid rules, AI agents leverage large language models (LLMs) to reason about problems and adapt their approach dynamically.
+In the [from-scratch tutorial](/tutorials/intro-to-ai-agents) you hand-wrote the agent loop. Here you'll get the same behavior in a fraction of the code with **LangChain's `create_agent`** — the standard agent builder in LangChain 1.0 — and then do the part most intros skip: **measure that the agent calls the right tool.**
 
-Think of an AI agent as a smart assistant that can:
+By the end you'll be able to spin up a tool-using agent and write a tiny eval that reports its tool-selection accuracy.
 
-- Break down complex tasks into smaller steps
-- Use tools (APIs, databases, web browsers) to gather information
-- Make decisions based on context
-- Learn from feedback and adjust its strategy
+## Setup
 
-## Agent Architecture Basics
-
-Every AI agent has three core components:
-
-### 1. The Brain (LLM)
-
-The language model serves as the reasoning engine. It processes inputs, generates plans, and decides which actions to take.
-
-### 2. Tools
-
-Tools are functions the agent can call to interact with the outside world. Examples include:
-
-- **Web search** — Find information online
-- **Code execution** — Run Python code
-- **API calls** — Interact with external services
-- **File operations** — Read and write files
-
-### 3. Memory
-
-Memory allows agents to maintain context across interactions. This can be:
-
-- **Short-term memory** — The current conversation context
-- **Long-term memory** — Persistent storage of past interactions and learned information
-
-## Building Your First Agent
-
-Let's build a simple AI agent using Python. We'll create an agent that can answer questions and perform web searches.
-
-### Prerequisites
-
-First, install the required packages:
+LangChain 1.0 reorganized its namespace; `create_agent` replaces the older `AgentExecutor` / `create_tool_calling_agent` dance.
 
 ```bash
-pip install openai langchain langchain-openai
+pip install langchain langchain-openai
+export OPENAI_API_KEY="sk-..."
 ```
 
-### Step 1: Set Up the LLM
+## Step 1: Define Tools
 
-```python
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0,
-)
-```
-
-### Step 2: Define Tools
+A tool is a function with the `@tool` decorator. The type hints become its argument schema; the docstring tells the model when to use it.
 
 ```python
 from langchain.tools import tool
+from datetime import datetime
 
 @tool
-def calculate(expression: str) -> str:
-    """Evaluate a mathematical expression and return the result."""
-    try:
-        result = eval(expression)  # In production, use a safe math parser
-        return str(result)
-    except Exception as e:
-        return f"Error: {e}"
+def calculator(expression: str) -> str:
+    """Evaluate a basic arithmetic expression, e.g. '144 / 12'."""
+    allowed = set("0123456789+-*/(). ")
+    if not set(expression) <= allowed:
+        return "Error: only numbers and + - * / ( ) allowed."
+    return str(eval(expression, {"__builtins__": {}}))
 
 @tool
-def get_current_time() -> str:
+def current_time() -> str:
     """Get the current date and time."""
-    from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-tools = [calculate, get_current_time]
+@tool
+def word_count(text: str) -> int:
+    """Count the number of words in a piece of text."""
+    return len(text.split())
 ```
 
-### Step 3: Create the Agent
+## Step 2: Create the Agent
+
+`create_agent` wires the model, tools, and the reason→act→observe loop together. The model string uses the `provider:model` format.
 
 ```python
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import create_agent
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant. Use tools when needed."),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+agent = create_agent(
+    model="openai:gpt-4o",
+    tools=[calculator, current_time, word_count],
+    system_prompt="You are a helpful assistant. Use a tool whenever one applies.",
+)
 ```
 
-### Step 4: Run the Agent
+## Step 3: Run It
+
+Invoke with a list of messages; the final answer is the last message's content.
 
 ```python
-result = executor.invoke({
-    "input": "What is 42 * 17, and what time is it right now?"
-})
-
-print(result["output"])
+result = agent.invoke(
+    {"messages": [{"role": "user", "content": "What is 144 divided by 12?"}]}
+)
+print(result["messages"][-1].content)
+# 144 divided by 12 is 12.
 ```
 
-The agent will automatically decide to use both the `calculate` and `get_current_time` tools to answer your question.
+The agent inspected the request, decided `calculator` was the right tool, called it with `144 / 12`, and phrased the answer. That's the whole loop — handled for you.
 
-## Key Concepts to Remember
+## Step 4: Measure Tool Selection
 
-1. **Agents reason, not just execute** — They decide *what* to do, not just *how* to do it
-2. **Tools extend capabilities** — The more tools an agent has, the more it can accomplish
-3. **Prompts shape behavior** — The system prompt defines the agent's personality and constraints
-4. **Observation loops** — Agents observe tool outputs and decide whether to continue or stop
+An agent that answers correctly but for the wrong reason will betray you later. The thing to verify is **behavior**: did it call the tool you expected? Every message LangChain produces is in `result["messages"]`, and tool results arrive as messages with `type == "tool"` carrying the tool's `name` — so you can check exactly which tools fired.
 
-## Next Steps
+```python
+def tools_used(result) -> list[str]:
+    return [m.name for m in result["messages"] if getattr(m, "type", None) == "tool"]
 
-Now that you understand the basics, try:
+EVAL = [
+    ("What is 18 * 37?",                         "calculator"),
+    ("What's the date today?",                   "current_time"),
+    ("How many words are in 'the quick brown fox'?", "word_count"),
+    ("What is 1000 minus 256?",                  "calculator"),
+]
 
-- Adding more tools (web search, file I/O)
-- Implementing memory for multi-turn conversations
-- Adding error handling and retry logic
-- Exploring frameworks like CrewAI for multi-agent systems
+correct = 0
+for prompt, expected in EVAL:
+    result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
+    used = tools_used(result)
+    hit = expected in used
+    correct += hit
+    print(f"{'✓' if hit else '✗'} expected={expected:13} used={used}  | {prompt}")
 
-Check out our intermediate tutorial on [Automating Business Workflows with LangChain](/tutorials/automating-workflows-langchain) to see agents in action on real business problems.
+print(f"\nTool-selection accuracy: {correct}/{len(EVAL)} = {correct / len(EVAL):.0%}")
+```
+
+A typical run:
+
+```text
+✓ expected=calculator    used=['calculator']    | What is 18 * 37?
+✓ expected=current_time  used=['current_time']  | What's the date today?
+✓ expected=word_count    used=['word_count']    | How many words are in 'the quick brown fox'?
+✓ expected=calculator    used=['calculator']    | What is 1000 minus 256?
+
+Tool-selection accuracy: 4/4 = 100%
+```
+
+Now adding a tool or editing the system prompt has a feedback signal: rerun the eval and watch the number. When you later add overlapping tools (say, two search tools), this is how you catch the agent reaching for the wrong one.
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| `from langchain.agents import AgentExecutor` | Legacy pre-1.0 API | Use `create_agent` from `langchain.agents` |
+| Bare model name like `"gpt-4o"` | Provider can't be inferred | Use `"openai:gpt-4o"` and install `langchain-openai` |
+| Reading the wrong message | `result` is a dict of messages | Final answer is `result["messages"][-1].content` |
+| Thin/empty docstrings on tools | Model can't tell when to use them | Write a one-line description of *when* to call each tool |
+
+## Where to Go Next
+
+You've built and *measured* a single agent. Two directions from here:
+
+- Peek under the hood — [Introduction to AI Agents: Build the Loop From Scratch](/tutorials/intro-to-ai-agents) shows what `create_agent` is doing for you.
+- Scale to many agents and richer control with [Tool-Calling Agents in LangGraph](/tutorials/langgraph-tool-calling-agents) or [Build Your First CrewAI Crew](/tutorials/crewai-build-your-first-crew).
