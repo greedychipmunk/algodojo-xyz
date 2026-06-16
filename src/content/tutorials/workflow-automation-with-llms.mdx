@@ -1,50 +1,245 @@
 ---
-title: "Workflow Automation with LLMs"
+title: "Workflow Automation with LLMs: Build and Measure a Ticket-Triage System"
 slug: "workflow-automation-with-llms"
-description: "Use LLMs to automate repetitive business workflows without sacrificing quality or control."
+description: "Build a real LLM workflow that triages support tickets — then learn the skill most tutorials skip: measuring it. You'll write a structured-output classifier, evaluate its accuracy on a labeled set, and use confidence gating to safely auto-resolve tickets while escalating the rest to humans."
 tier: "free"
 category: "automation"
-difficulty: "beginner"
-estimatedReadTime: 10
+difficulty: "intermediate"
+estimatedReadTime: 14
 publishedAt: "2026-05-01T09:00:00.000Z"
-updatedAt: "2026-05-01T09:00:00.000Z"
+updatedAt: "2026-06-16"
 author: "Algo Dojo"
 tags:
   - "automation"
   - "LLMs"
-  - "workflows"
-  - "productivity"
+  - "classification"
+  - "evaluation"
+  - "structured-output"
+  - "python"
 ---
 
-# Workflow Automation with LLMs
+## What You'll Build
 
-LLMs can automate a surprising amount of work when you use them in the right part of a process. The best results come from combining deterministic steps with flexible language understanding where it actually matters.
+Most "automate with LLMs" advice stops at *"add a review step and some guardrails."* That's not a skill — it's a slogan. This tutorial teaches the part that actually makes an automation trustworthy: **measuring it**.
 
-## Find the right workflow
+You'll build a support-ticket **triage** workflow — the kind of repetitive, text-heavy task LLMs are great at — and by the end you'll be able to:
 
-Look for tasks that are repetitive, text-heavy, and structured enough to verify. Good examples include ticket routing, email drafting, meeting summaries, and document classification.
+- Turn an LLM into a reliable **classifier** using structured output (no fragile string parsing)
+- **Measure its accuracy** against a labeled test set, so "it seems to work" becomes "92% on 50 tickets"
+- Use **confidence gating** to auto-resolve the easy cases and escalate the rest to a human — and quantify exactly how much work that saves
 
-### Good candidate traits
+The skill is transferable: this build-then-measure loop applies to any LLM automation — email routing, document extraction, content moderation.
 
-- High repetition
-- Clear inputs and outputs
-- Measurable quality
-- Low blast radius when errors happen
+## The Workflow
 
-## Design a human-friendly loop
+When a support ticket arrives, someone reads it and decides three things: what it's *about* (category), how *urgent* it is (priority), and a short *summary* for the queue. We'll automate that decision and route on it.
 
-Automation should reduce friction, not hide it. Build review steps into the workflow so people can inspect or override important decisions.
+```text
+ticket → LLM triage → { category, priority, summary, confidence } → route
+                                                          │
+                                  high confidence ───────►├─ auto-route to the right queue
+                                  low confidence ────────►└─ escalate to a human
+```
 
-## Use the model where it adds value
+## Setup
 
-A strong workflow often looks like this:
+```bash
+pip install openai pydantic
+export OPENAI_API_KEY="sk-..."
+```
 
-1. Trigger the process.
-2. Gather the required data.
-3. Ask the LLM to draft, classify, or extract.
-4. Validate the result.
-5. Route the output to the next system.
+## Step 1: Model the Output
 
-## Keep it reliable
+The single biggest reliability win is **not** parsing free-form text. Define the exact shape you want with Pydantic, and the model is constrained to return it.
 
-Add logging, fallback paths, and simple guardrails. The goal is not to replace every manual step, but to turn a slow process into a dependable one.
+```python
+from enum import Enum
+from pydantic import BaseModel, Field
+
+class Category(str, Enum):
+    billing = "billing"
+    technical = "technical"
+    account = "account"
+    other = "other"
+
+class Triage(BaseModel):
+    category: Category = Field(description="The single best-fit category for the ticket.")
+    priority: int = Field(description="Urgency from 1 (low) to 5 (critical).")
+    summary: str = Field(description="A one-sentence summary of the customer's issue.")
+    confidence: float = Field(description="Confidence in the category, from 0.0 to 1.0.")
+```
+
+The `Category` enum is what makes this a *classifier*: the model can only return one of four known values, so downstream routing code never has to guess.
+
+## Step 2: Write the Triage Function
+
+`client.chat.completions.parse` returns your Pydantic object directly via `message.parsed`.
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+SYSTEM_PROMPT = """You triage customer support tickets. Classify each into exactly one category:
+- billing: payments, invoices, refunds, charges, plans, pricing
+- technical: bugs, errors, crashes, things not working
+- account: login, profile, email/password changes, account deletion
+- other: feedback, feature requests, anything that fits none of the above
+Set priority by urgency and business impact. Report an honest confidence."""
+
+def triage(ticket: str) -> Triage:
+    completion = client.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": ticket},
+        ],
+        response_format=Triage,
+    )
+    return completion.choices[0].message.parsed
+```
+
+Try it:
+
+```python
+result = triage("I was charged twice for my subscription this month.")
+print(result.category, result.priority, result.confidence)
+# Category.billing 4 0.97
+```
+
+You now have a working automation. But "it worked on one ticket" is not a number you can stake a process on. Let's fix that.
+
+## Step 3: Measure It (the actual skill)
+
+You can't improve — or trust — what you don't measure. Build a small **labeled eval set**: real-ish inputs paired with the correct answer. Ten examples is enough to start; aim for 30–50 before you rely on the numbers.
+
+```python
+EVAL_SET = [
+    ("I was charged twice for my subscription this month.", Category.billing),
+    ("The app crashes every time I upload a CSV.",          Category.technical),
+    ("How do I change the email address on my account?",    Category.account),
+    ("Your product is amazing — just wanted to say thanks!",Category.other),
+    ("I need a refund for the duplicate payment.",          Category.billing),
+    ("Login returns a 500 error after the latest update.",  Category.technical),
+    ("Please delete my account and all of my data.",        Category.account),
+    ("I upgraded my plan but the invoice shows the wrong amount.", Category.billing),
+    ("The dashboard charts won't load in Safari.",          Category.technical),
+    ("Can you add a dark mode option?",                     Category.other),
+]
+
+def evaluate() -> float:
+    correct = 0
+    for ticket, expected in EVAL_SET:
+        result = triage(ticket)
+        hit = result.category == expected
+        correct += hit
+        print(f"{'✓' if hit else '✗'} got={result.category.value:9} exp={expected.value:9} "
+              f"conf={result.confidence:.2f}  {ticket[:45]}")
+    accuracy = correct / len(EVAL_SET)
+    print(f"\nAccuracy: {correct}/{len(EVAL_SET)} = {accuracy:.0%}")
+    return accuracy
+
+evaluate()
+```
+
+Now you have a **scoreboard**. A typical run looks like:
+
+```text
+✓ got=billing   exp=billing   conf=0.97  I was charged twice for my subscription thi
+✓ got=technical exp=technical conf=0.95  The app crashes every time I upload a CSV.
+✗ got=billing   exp=other     conf=0.61  Can you add a dark mode option?
+...
+Accuracy: 9/10 = 90%
+```
+
+This single number changes how you work: tweak the prompt, add an example, switch models — and *rerun*. You're no longer guessing whether a change helped; you can see it. (Notice the miss came with low confidence — that's the lever for the next step.)
+
+## Step 4: Confidence Gating — Automate Safely
+
+90% accuracy isn't good enough to act on blindly. But look again: the model was **confident** when it was right and **unsure** when it was wrong. So don't auto-act on the unsure ones — escalate them. That's confidence gating.
+
+```python
+def measure_gate(threshold: float) -> None:
+    auto = auto_correct = escalated = 0
+    for ticket, expected in EVAL_SET:
+        result = triage(ticket)
+        if result.confidence >= threshold:
+            auto += 1
+            auto_correct += (result.category == expected)
+        else:
+            escalated += 1
+    coverage = auto / len(EVAL_SET)
+    auto_acc = (auto_correct / auto) if auto else 0.0
+    print(f"threshold={threshold:.2f}  auto-handled={coverage:>4.0%}  "
+          f"accuracy-on-auto={auto_acc:>4.0%}  escalated={escalated}")
+
+for t in (0.00, 0.70, 0.80, 0.90):
+    measure_gate(t)
+```
+
+A representative result:
+
+```text
+threshold=0.00  auto-handled=100%  accuracy-on-auto= 90%  escalated=0
+threshold=0.70  auto-handled= 90%  accuracy-on-auto= 96%  escalated=1
+threshold=0.80  auto-handled= 80%  accuracy-on-auto=100%  escalated=2
+threshold=0.90  auto-handled= 70%  accuracy-on-auto=100%  escalated=3
+```
+
+This table *is* the engineering decision, made with data instead of vibes: raise the threshold to buy accuracy on the automated slice, at the cost of escalating more to humans. Pick the point that matches your tolerance — e.g. *"auto-handle anything ≥ 0.80, where we hit 100% on this set; a human reviews the other 20%."*
+
+## Putting a Number on the Value
+
+Now translate accuracy into hours. Suppose your team triages **200 tickets/day** and manual reading + routing averages **3 minutes** each:
+
+```text
+Manual baseline:  200 × 3 min            = 600 min/day  (10.0 hrs)
+Gate at 0.80:     auto-handle 80%, human reviews the rest
+  - 160 auto-routed:  ~0 min triage      =   0 min
+  - 40 escalated:     40 × 3 min         = 120 min
+Automated total:                         = 120 min/day  ( 2.0 hrs)
+
+Saved: ~8 hours/day of routing — and the 80% auto-handled hit 100% on our test set.
+```
+
+Plug in your own volume and time-per-ticket. The point is that you can now **defend the automation with numbers**, which is exactly what gets it approved and shipped.
+
+## Make It Reliable
+
+A few cheap additions turn the prototype into something dependable:
+
+```python
+def triage_safe(ticket: str) -> Triage:
+    result = triage(ticket)
+
+    # Deterministic guardrail: some words must never be misrouted, no matter what.
+    text = ticket.lower()
+    if any(w in text for w in ("refund", "charged", "invoice")):
+        result.category = Category.billing
+
+    # Validate the model stayed in range (Structured Outputs won't enforce numeric bounds).
+    result.priority = max(1, min(5, result.priority))
+    return result
+```
+
+Round it out with:
+
+- **Retries** — wrap the API call in a try/except and retry once on transient errors.
+- **Logging** — record every `(ticket, result)` so your eval set keeps growing from real traffic.
+- **Re-measure on a schedule** — models and ticket patterns drift; rerun `evaluate()` weekly.
+
+## Common Pitfalls
+
+| Mistake | Why it hurts | Fix |
+|---|---|---|
+| Parsing free-form text | Brittle; breaks on phrasing changes | Use structured output with a Pydantic schema |
+| Open-ended category field | Downstream routing can't rely on the value | Constrain with a `Category` enum |
+| Shipping without an eval set | "Seems fine" until it silently regresses | Measure accuracy on labeled examples first |
+| Auto-acting on every prediction | Confident *and* unsure cases treated alike | Gate on `confidence`; escalate the rest |
+| Numeric `Field(ge=…, le=…)` constraints | Strict Structured Outputs rejects `minimum`/`maximum` | Describe ranges in the prompt; clamp in code |
+
+## Recap & Next Steps
+
+You didn't just "use an LLM" — you built a workflow and then **measured and tuned it**: structured output for reliability, an eval set for accuracy, and confidence gating to automate the safe slice while keeping humans on the rest. That build-then-measure loop is the reusable skill.
+
+To take it further, turn this single classifier into a multi-step agent that also *drafts a reply* and *looks up the customer's order* — see [Build Your First CrewAI Crew](/tutorials/crewai-build-your-first-crew) or [Tool-Calling Agents in LangGraph](/tutorials/langgraph-tool-calling-agents).
