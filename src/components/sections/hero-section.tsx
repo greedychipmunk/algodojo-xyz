@@ -36,12 +36,12 @@ export function HeroSection() {
             >
               Get Started
             </Link>
-            {/* <Link
+            <Link
               href="/tutorials"
               className="inline-flex items-center justify-center rounded-xl border border-border bg-bg-card px-6 py-3 text-sm font-semibold text-text-primary shadow-card transition-all duration-200 hover:border-border-hover hover:bg-bg-card-hover hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
             >
               View Tutorials
-            </Link> */}
+            </Link>
           </div>
         </div>
       </Container>
