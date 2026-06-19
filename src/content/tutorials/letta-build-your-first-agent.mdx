@@ -141,6 +141,8 @@ Agent ID: agent-abc12345-...
 Agent: Hi Brad! It's great to meet you. How can I help you today?
 ```
 
+Each time you run `first_agent.py` it calls `agents.create` again, so you get a *brand-new* agent with its own ID and its own memory. That's why we print the ID — copy it, because we'll reuse that exact agent in the next section instead of creating another one.
+
 Notice that you're iterating `response.messages` and filtering by `message_type`. Letta doesn't just return the assistant's final reply — it returns the full internal trace: the agent's reasoning steps, any tool calls it made to update memory, and the final reply. This transparency is one of Letta's most useful debugging features. In the ADE you can inspect all of it visually.
 
 For most production use cases you'll only want the `"assistant_message"` type, which is the user-facing reply. The `"reasoning_message"` and `"tool_call_message"` types are internal.
@@ -150,7 +152,7 @@ For most production use cases you'll only want the `"assistant_message"` type, w
 Here's the real test. Close the terminal. Open a new one. The Python process that created the agent is long gone — but the agent's memory is still on the server. Paste in the ID that was printed and run this standalone script:
 
 ```python
-# Run this later, in a fresh process, with the agent_id printed above.
+# ask_again.py — run later, in a fresh process, with the agent_id printed above.
 from letta_client import Letta
 
 client = Letta(base_url="http://localhost:8283")
