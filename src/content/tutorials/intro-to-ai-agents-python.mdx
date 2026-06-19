@@ -27,11 +27,20 @@ pip install langchain langchain-openai
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+first-agent/
+├── .env          # OPENAI_API_KEY=sk-...
+└── agent.py      # tools, the agent, and the run loop below
+```
+
 ## Step 1: Define Tools
 
 A tool is a function with the `@tool` decorator. The type hints become its argument schema; the docstring tells the model when to use it.
 
 ```python
+# agent.py
 from langchain.tools import tool
 from datetime import datetime
 
@@ -59,6 +68,7 @@ def word_count(text: str) -> int:
 `create_agent` wires the model, tools, and the reason→act→observe loop together. The model string uses the `provider:model` format.
 
 ```python
+# agent.py
 from langchain.agents import create_agent
 
 agent = create_agent(
@@ -73,6 +83,7 @@ agent = create_agent(
 Invoke with a list of messages; the final answer is the last message's content.
 
 ```python
+# agent.py
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "What is 144 divided by 12?"}]}
 )
@@ -87,6 +98,7 @@ The agent inspected the request, decided `calculator` was the right tool, called
 An agent that answers correctly but for the wrong reason will betray you later. The thing to verify is **behavior**: did it call the tool you expected? Every message LangChain produces is in `result["messages"]`, and tool results arrive as messages with `type == "tool"` carrying the tool's `name` — so you can check exactly which tools fired.
 
 ```python
+# agent.py
 def tools_used(result) -> list[str]:
     return [m.name for m in result["messages"] if getattr(m, "type", None) == "tool"]
 
