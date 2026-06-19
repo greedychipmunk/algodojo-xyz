@@ -1,0 +1,177 @@
+---
+title: "Build Your First Letta Agent"
+slug: "letta-build-your-first-agent"
+description: "Letta (formerly MemGPT) builds stateful agents that remember. Start a Letta server, connect the Python SDK, create an agent with memory blocks, and watch it recall facts across messages."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "stateful-agents", "memory", "python", "beginner"]
+difficulty: "beginner"
+estimatedReadTime: 10
+publishedAt: "2026-06-15"
+updatedAt: "2026-06-15"
+author: "Algo Dojo"
+---
+
+## Why Stateful Agents?
+
+Every agent framework we've covered so far — AutoGen, CrewAI, Pydantic AI, LangGraph — shares a quiet limitation: the agent forgets everything the moment your process ends. Re-run the script and you're starting from scratch. To "remember" anything you have to re-stuff the prompt with whatever context you think the agent needs. That works fine for one-shot tasks, but falls apart the moment you want an agent that actually *knows* something about the people and projects it works with over time.
+
+[Letta](https://www.letta.com) (the framework formerly known as MemGPT) was designed from the ground up to solve exactly this. Memory is a **first-class, server-persisted construct** — not a bolted-on variable in your Python script. Each agent owns a set of named memory blocks that it can read and update autonomously, and those blocks survive across processes, restarts, and days.
+
+That architectural choice creates one important difference from in-process libraries like AutoGen or Pydantic AI: **Letta runs as a server**. Instead of importing a library and instantiating objects in memory, you spin up a Letta server (Docker is the easiest way), then connect to it through an SDK. The agents, their memories, and their conversation histories all live on that server. Your Python script is just the client.
+
+This server-plus-SDK shape means:
+
+- You can connect multiple clients — a CLI, a web app, a bot — to the same agent.
+- The agent's state is durable without you writing a single line of persistence code.
+- You query and update agents between runs just by knowing their ID.
+
+Let's put that to work.
+
+## Start the Letta Server
+
+The fastest way to run Letta locally is Docker. This command starts the server, mounts a volume so your agents survive container restarts, and wires up an OpenAI key for the model and embeddings:
+
+```bash
+docker run \
+  -v ~/.letta/.persist/pgdata:/var/lib/postgresql/data \
+  -p 8283:8283 \
+  -e OPENAI_API_KEY="your-openai-key" \
+  letta/letta:latest
+```
+
+Once it's running you'll have two things at `localhost:8283`:
+
+- The **REST API** that the Python SDK talks to.
+- The **Agent Development Environment (ADE)** — a browser UI where you can inspect memory blocks, replay messages, and poke agents interactively. Open [http://localhost:8283](http://localhost:8283) to explore it after you've created your first agent.
+
+> **No Docker?** Letta also offers a managed cloud service at [app.letta.com](https://app.letta.com). You can skip the Docker step entirely and point the SDK at the cloud URL instead. The code in this tutorial is identical either way.
+
+## Project Setup
+
+This tutorial lives in a single script — no web framework, no database, no background workers. All the statefulness is handled by the server you just started.
+
+```text
+letta-quickstart/
+├── .env             # optional: OPENAI_API_KEY=sk-... (or use a local model later)
+└── first_agent.py   # create an agent and talk to it
+```
+
+Install the Python SDK:
+
+```bash
+pip install letta-client
+```
+
+`letta-client` is the official SDK that wraps the Letta REST API. It handles authentication, request serialization, and the typed response models you'll see below.
+
+## Create Your First Agent
+
+Letta agents are created once and then referred to by ID forever after. You don't re-instantiate them on every run — you retrieve them from the server. Here's how to create one:
+
+```python
+# first_agent.py
+from letta_client import Letta
+
+# Connect to the self-hosted server you started with Docker.
+client = Letta(base_url="http://localhost:8283")
+
+# Create a stateful agent with two self-editing memory blocks.
+agent = client.agents.create(
+    model="openai/gpt-4o-mini",
+    embedding="openai/text-embedding-3-small",  # required for a self-hosted server
+    memory_blocks=[
+        {"label": "human", "value": "The human's name is unknown so far.", "limit": 5000},
+        {"label": "persona", "value": "My name is Sam, a friendly assistant.", "limit": 5000},
+    ],
+)
+print("Agent ID:", agent.id)
+```
+
+A few things worth understanding here.
+
+**Memory blocks** are the core of Letta's stateful model. Each block has a label, an initial value, and a character limit. The agent can read and rewrite them autonomously as the conversation progresses — so when a user tells it their name, the agent updates the `human` block to record that fact. The next time the agent runs, those blocks are loaded fresh from the server, and it remembers.
+
+**The embedding model** is required when running against a self-hosted Letta server because Letta uses vector embeddings internally to power archival memory search (a deeper memory tier you'll explore in [Letta Memory: Core Blocks & Archival](/tutorials/letta-memory-blocks)). The cloud service handles this for you; the self-hosted server needs you to specify it explicitly.
+
+**Print the agent ID.** You'll need it in the next section to prove statefulness across processes.
+
+## Send a Message
+
+Once the agent exists, you send messages to it through `client.agents.messages.create`. Each call appends to the agent's conversation history on the server:
+
+```python
+# first_agent.py
+from letta_client import Letta
+
+client = Letta(base_url="http://localhost:8283")
+
+# Create a stateful agent with two self-editing memory blocks.
+agent = client.agents.create(
+    model="openai/gpt-4o-mini",
+    embedding="openai/text-embedding-3-small",  # required for a self-hosted server
+    memory_blocks=[
+        {"label": "human", "value": "The human's name is unknown so far.", "limit": 5000},
+        {"label": "persona", "value": "My name is Sam, a friendly assistant.", "limit": 5000},
+    ],
+)
+print("Agent ID:", agent.id)
+
+response = client.agents.messages.create(
+    agent_id=agent.id,
+    messages=[{"role": "user", "content": "Hi! My name is Brad."}],
+)
+
+# Letta returns typed messages: reasoning, tool calls, and the final reply.
+for message in response.messages:
+    if message.message_type == "assistant_message":
+        print("Agent:", message.content)
+```
+
+Run it:
+
+```bash
+python first_agent.py
+```
+
+You'll see something like:
+
+```
+Agent ID: agent-abc12345-...
+Agent: Hi Brad! It's great to meet you. How can I help you today?
+```
+
+Notice that you're iterating `response.messages` and filtering by `message_type`. Letta doesn't just return the assistant's final reply — it returns the full internal trace: the agent's reasoning steps, any tool calls it made to update memory, and the final reply. This transparency is one of Letta's most useful debugging features. In the ADE you can inspect all of it visually.
+
+For most production use cases you'll only want the `"assistant_message"` type, which is the user-facing reply. The `"reasoning_message"` and `"tool_call_message"` types are internal.
+
+## Proving It Remembers
+
+Here's the real test. Close the terminal. Open a new one. The Python process that created the agent is long gone — but the agent's memory is still on the server. Paste in the ID that was printed and run this standalone script:
+
+```python
+# Run this later, in a fresh process, with the agent_id printed above.
+from letta_client import Letta
+
+client = Letta(base_url="http://localhost:8283")
+agent_id = "agent-..."  # paste the ID from before
+
+response = client.agents.messages.create(
+    agent_id=agent_id,
+    messages=[{"role": "user", "content": "What's my name?"}],
+)
+for message in response.messages:
+    if message.message_type == "assistant_message":
+        print("Agent:", message.content)  # -> recalls "Brad"
+```
+
+The agent replies with "Brad" — not because you re-stuffed the prompt, but because it autonomously wrote that fact into its `human` memory block during the first conversation, and that block is server-persisted. This is the core loop: user says something → agent updates its own memory → server stores the update → future calls load fresh memory and the fact is there.
+
+This also illustrates why Letta's architecture is unusual compared to most agent frameworks. The "statefulness" isn't in your application code at all. It's in the server. Your scripts are thin clients that dispatch messages and read replies.
+
+## Where to Go Next
+
+You now have a working Letta agent that persists memory across processes. The foundation is solid — here's what to build on top of it:
+
+- [Letta Memory: Core Blocks & Archival](/tutorials/letta-memory-blocks) — go deeper on the two-tier memory system: the in-context blocks you've already seen, and the archival tier that lets an agent store and search an unlimited amount of long-term facts using vector embeddings.
+- [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) — equip your agent with Python functions it can call autonomously, so it can look up real data, send notifications, or interact with external systems during a conversation.
