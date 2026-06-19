@@ -34,11 +34,20 @@ pip install langgraph langchain-openai
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+first-graph/
+├── .env          # OPENAI_API_KEY=sk-...
+└── graph.py      # state, nodes, and the graph below
+```
+
 ## Step 1: Define the State
 
 State is a `TypedDict`. Every node receives the current state and returns a dictionary with the keys it wants to update.
 
 ```python
+# graph.py
 from typing import TypedDict
 
 class State(TypedDict):
@@ -51,6 +60,7 @@ class State(TypedDict):
 A node is just a function: `state in → partial update out`. You return only the keys you're changing.
 
 ```python
+# graph.py
 def write_setup(state: State) -> dict:
     return {"joke": f"Why did the {state['topic']} cross the road?"}
 
@@ -63,6 +73,7 @@ def write_punchline(state: State) -> dict:
 Add the nodes, then connect them with edges. `START` points at the first node; the last node points at `END`.
 
 ```python
+# graph.py
 from langgraph.graph import StateGraph, START, END
 
 builder = StateGraph(State)
@@ -79,6 +90,7 @@ graph = builder.compile()
 `compile()` validates the graph and returns a runnable. Invoke it with an initial state:
 
 ```python
+# graph.py
 result = graph.invoke({"topic": "chicken"})
 print(result["joke"])
 # Why did the chicken cross the road? ...To get to the other side!
@@ -93,6 +105,7 @@ By default, returning a key *replaces* its value (that's why `write_punchline` h
 The built-in `add_messages` reducer appends messages instead of overwriting them. You attach it with `Annotated`:
 
 ```python
+# graph.py
 from typing import Annotated, TypedDict
 from langgraph.graph.message import add_messages
 
@@ -106,6 +119,7 @@ class ChatState(TypedDict):
 Now make a node call a model. The node reads the running `messages`, calls the LLM, and returns the reply — which `add_messages` appends.
 
 ```python
+# graph.py
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 
@@ -131,6 +145,7 @@ print(result["messages"][-1].content)
 `invoke` runs the whole graph and returns the final state. `stream` emits the state as each node finishes — great for watching progress or surfacing tokens in a UI:
 
 ```python
+# graph.py
 for step in graph.stream(
     {"messages": [{"role": "user", "content": "Explain LangGraph in one sentence."}]},
     stream_mode="values",
