@@ -34,11 +34,20 @@ We'll use a real diagnostic dataset that ships with scikit-learn (predict whethe
 pip install scikit-learn joblib
 ```
 
+## Project Setup
+
+```text
+ml-pipeline/
+├── train.py      # load data, build + evaluate the pipeline, persist the model
+└── predict.py    # load the saved model and score new data
+```
+
 ## Step 1: Load and Sanity-Check the Data
 
 Reproducibility starts with a fixed split and a quick data contract. We `stratify` so both classes are represented proportionally in train and test.
 
 ```python
+# train.py
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 
@@ -59,6 +68,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 Before any modeling, answer: *what score does a trivial strategy get?* If your fancy model can't beat "always predict the majority class," something is wrong. This single habit catches a huge fraction of ML mistakes.
 
 ```python
+# train.py
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import accuracy_score
 
@@ -74,6 +84,7 @@ Now you have a bar to clear. Any real model must do meaningfully better than ~0.
 The key idea: bundle preprocessing and the estimator into **one** `Pipeline`. The scaler learns its parameters from the *training* data only and re-applies them at predict time — so you can't accidentally leak test statistics or forget a step in production.
 
 ```python
+# train.py
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -93,6 +104,7 @@ pipe.fit(X_train, y_train)
 Accuracy alone hides failures — especially with imbalanced classes. Use a full report (precision/recall/F1 per class):
 
 ```python
+# train.py
 from sklearn.metrics import classification_report
 
 preds = pipe.predict(X_test)
@@ -107,6 +119,7 @@ You should see ~0.97 accuracy — comfortably above the 0.63 baseline — with h
 A single test split can be lucky. **K-fold cross-validation** trains and evaluates on K different splits and reports the spread, so you know how stable the score is.
 
 ```python
+# train.py
 from sklearn.model_selection import cross_val_score
 
 scores = cross_val_score(pipe, X, y, cv=5, scoring="f1")
@@ -119,14 +132,24 @@ A tight band (small ±) means the result is reliable; a wide one means your sing
 
 Save the *entire* pipeline (preprocessing included) as one artifact. Inference code then loads one object and calls `predict` — no risk of applying the wrong scaling.
 
+Add to `train.py`:
+
 ```python
+# train.py
 import joblib
 
 joblib.dump(pipe, "tumor_model.joblib")
+```
 
-# Later, in your serving code:
+In a separate file, `predict.py`, load the model you just saved:
+
+```python
+# predict.py
+import joblib
+import pandas as pd
+
 model = joblib.load("tumor_model.joblib")
-sample = X_test.iloc[[0]]
+sample = pd.read_csv("new_sample.csv")  # or pass a DataFrame directly
 print("prediction:", model.predict(sample)[0], "proba:", model.predict_proba(sample)[0].round(3))
 ```
 
