@@ -88,7 +88,7 @@ In the streamed output you'll see a `ToolCallRequestEvent` (the agent deciding t
 
 ## A More Useful Example
 
-Tools shine when they do something the model genuinely can't. Here's a calculator the agent can lean on for exact arithmetic, plus a lookup tool:
+Tools shine when they do something the model genuinely can't. Replace the tool and agent in `tools_demo.py` with a calculator and order-status lookup:
 
 ```python
 # tools_demo.py
@@ -124,7 +124,7 @@ Now a prompt like *"What's the status of order A1001, and what's 19% tax on $240
 
 ## Explicit Schemas with FunctionTool
 
-Relying on the function name and docstring is convenient, but sometimes you want an explicit, separate description — especially when the function name isn't self-explanatory or you're exposing a third-party function. Wrap it with `FunctionTool`:
+Relying on the function name and docstring is convenient, but sometimes you want an explicit, separate description — especially when the function name isn't self-explanatory or you're exposing a third-party function. Replace the tool and agent in `tools_demo.py` with this example, using `FunctionTool`:
 
 ```python
 # tools_demo.py
@@ -132,7 +132,7 @@ Relying on the function name and docstring is convenient, but sometimes you want
 from autogen_core.tools import FunctionTool
 
 def query_kb(q: str) -> str:
-    return run_vector_search(q)  # your existing search function
+    return run_vector_search(q)  # stand-in: replace with your own retrieval/search function
 
 kb_tool = FunctionTool(
     query_kb,
