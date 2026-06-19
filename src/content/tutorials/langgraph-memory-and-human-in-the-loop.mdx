@@ -22,11 +22,20 @@ The agents from the [previous tutorials](/tutorials/langgraph-tool-calling-agent
 
 This tutorial covers both halves: persistent memory, then pausing for human input.
 
+## Project Setup
+
+```text
+langgraph-memory/
+├── .env              # OPENAI_API_KEY=sk-...
+└── memory_graph.py   # the checkpointer and interrupt() flow below
+```
+
 ## Adding Memory with a Checkpointer
 
 A checkpointer is a storage backend. The simplest is `InMemorySaver`; you pass it to `compile()` (or to `create_react_agent`). Conversations are then keyed by a **`thread_id`** you supply in the config.
 
 ```python
+# memory_graph.py
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -61,6 +70,7 @@ The second call only sends *"What's the weather there?"* — yet the agent resol
 Because state is persisted, you can read it back at any time:
 
 ```python
+# memory_graph.py
 snapshot = agent.get_state(config)
 print(snapshot.values["messages"])  # full message history for this thread
 print(snapshot.next)                # which node(s) would run next
@@ -71,6 +81,7 @@ print(snapshot.next)                # which node(s) would run next
 `InMemorySaver` lives in process — restart and it's gone. For real persistence, swap in a database-backed checkpointer with the **same interface**; nothing else in your code changes:
 
 ```python
+# memory_graph.py
 # pip install langgraph-checkpoint-sqlite
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -88,6 +99,7 @@ Sometimes the graph should stop and wait for a person — to approve a risky act
 A checkpointer is **required** — that's what lets the paused graph be stored and resumed.
 
 ```python
+# memory_graph.py
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
@@ -119,6 +131,7 @@ config = {"configurable": {"thread_id": "review-1"}}
 Run it. The first invoke proceeds until the `interrupt`, then returns with the paused state instead of finishing:
 
 ```python
+# memory_graph.py
 result = graph.invoke({}, config)
 print(result["__interrupt__"])  # contains the {"draft": ...} payload to show a human
 ```
@@ -126,6 +139,7 @@ print(result["__interrupt__"])  # contains the {"draft": ...} payload to show a 
 Show that draft to a reviewer, collect their decision, and resume. The value you pass as `resume` becomes the **return value of `interrupt()`**:
 
 ```python
+# memory_graph.py
 final = graph.invoke(Command(resume="approve"), config)
 print(final["approved"])  # True
 ```
