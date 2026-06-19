@@ -48,11 +48,20 @@ pip install openai pydantic
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+ticket-triage/
+├── .env          # OPENAI_API_KEY=sk-...
+└── triage.py     # the output model, triage function, and gating below
+```
+
 ## Step 1: Model the Output
 
 The single biggest reliability win is **not** parsing free-form text. Define the exact shape you want with Pydantic, and the model is constrained to return it.
 
 ```python
+# triage.py
 from enum import Enum
 from pydantic import BaseModel, Field
 
@@ -76,6 +85,7 @@ The `Category` enum is what makes this a *classifier*: the model can only return
 `client.chat.completions.parse` returns your Pydantic object directly via `message.parsed`.
 
 ```python
+# triage.py
 from openai import OpenAI
 
 client = OpenAI()
@@ -102,6 +112,7 @@ def triage(ticket: str) -> Triage:
 Try it:
 
 ```python
+# triage.py
 result = triage("I was charged twice for my subscription this month.")
 print(result.category, result.priority, result.confidence)
 # Category.billing 4 0.97
@@ -114,6 +125,7 @@ You now have a working automation. But "it worked on one ticket" is not a number
 You can't improve — or trust — what you don't measure. Build a small **labeled eval set**: real-ish inputs paired with the correct answer. Ten examples is enough to start; aim for 30–50 before you rely on the numbers.
 
 ```python
+# triage.py
 EVAL_SET = [
     ("I was charged twice for my subscription this month.", Category.billing),
     ("The app crashes every time I upload a CSV.",          Category.technical),
@@ -159,6 +171,7 @@ This single number changes how you work: tweak the prompt, add an example, switc
 90% accuracy isn't good enough to act on blindly. But look again: the model was **confident** when it was right and **unsure** when it was wrong. So don't auto-act on the unsure ones — escalate them. That's confidence gating.
 
 ```python
+# triage.py
 def measure_gate(threshold: float) -> None:
     auto = auto_correct = escalated = 0
     for ticket, expected in EVAL_SET:
@@ -209,6 +222,7 @@ Plug in your own volume and time-per-ticket. The point is that you can now **def
 A few cheap additions turn the prototype into something dependable:
 
 ```python
+# triage.py
 def triage_safe(ticket: str) -> Triage:
     result = triage(ticket)
 

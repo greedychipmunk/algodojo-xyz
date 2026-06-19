@@ -35,11 +35,20 @@ export OPENAI_API_KEY="sk-..."
 export SERPER_API_KEY="..."
 ```
 
+## Project Setup
+
+```text
+crewai-tools/
+├── .env          # OPENAI_API_KEY=sk-...  SERPER_API_KEY=...
+└── crew.py       # the crew, built-in tool, and custom tool below
+```
+
 ## Adding a Built-in Tool
 
 CrewAI ships 80+ ready-made tools in `crewai_tools`. The two you'll reach for most are `SerperDevTool` (web search) and `ScrapeWebsiteTool` (read a page's contents). Assigning a tool to an agent is a one-liner:
 
 ```python
+# crew.py
 from crewai import Agent
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 
@@ -56,9 +65,10 @@ researcher = Agent(
 )
 ```
 
-That's the entire change. The agent now decides on its own when to search and when to scrape a result for detail. Pair it with a task that explicitly asks for sources so the tool actually gets used:
+That's the entire change. The agent now decides on its own when to search and when to scrape a result for detail. Pair it with a task that explicitly asks for sources so the tool actually gets used. Add to `crew.py`:
 
 ```python
+# crew.py
 from crewai import Task
 
 research_task = Task(
@@ -81,9 +91,10 @@ research_task = Task(
 
 Built-in tools cover common cases, but the real power is wrapping *your* systems — an internal pricing API, a vector store, a CRM. The quickest way is the `@tool` decorator from `crewai.tools`.
 
-The function's **docstring is not optional**: it's what the LLM reads to decide when and how to call the tool. Treat it like a mini prompt.
+The function's **docstring is not optional**: it's what the LLM reads to decide when and how to call the tool. Treat it like a mini prompt. Add to `crew.py`:
 
 ```python
+# crew.py
 from crewai.tools import tool
 import requests
 
@@ -103,9 +114,10 @@ def github_repo_stats(repo: str) -> str:
     )
 ```
 
-Add it to the agent's `tools` list alongside the built-ins:
+Add it to the agent's `tools` list alongside the built-ins. Add to `crew.py`:
 
 ```python
+# crew.py
 researcher = Agent(
     role="Senior Technology Researcher",
     goal="Find accurate, up-to-date information about {topic}",
@@ -118,9 +130,10 @@ researcher = Agent(
 
 ### The Class-Based Alternative
 
-For tools with multiple typed arguments or validation, subclass `BaseTool` and declare an `args_schema`. This gives the LLM a precise, typed contract for the inputs:
+For tools with multiple typed arguments or validation, subclass `BaseTool` and declare an `args_schema`. This gives the LLM a precise, typed contract for the inputs. Add to `crew.py`:
 
 ```python
+# crew.py
 from typing import Type
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -156,6 +169,7 @@ You can attach tools at two levels:
 Task-level tools are handy when one agent does several jobs but should only use search for the research step:
 
 ```python
+# crew.py
 deep_dive_task = Task(
     description="Scrape and summarize the official docs for {topic}.",
     expected_output="A structured summary with direct quotes and links.",

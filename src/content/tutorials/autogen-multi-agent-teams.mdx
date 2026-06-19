@@ -18,11 +18,20 @@ A single agent is great at a single job. But many real tasks improve when you sp
 
 In AutoGen, a **team** coordinates multiple agents and decides who speaks next. This tutorial covers the two teams you'll use most — `RoundRobinGroupChat` and `SelectorGroupChat` — plus the termination conditions that keep them from running forever. It builds on the [first agent](/tutorials/autogen-build-your-first-agent) and [tools](/tutorials/autogen-agent-tools) tutorials.
 
+## Project Setup
+
+```text
+autogen-team/
+├── .env          # OPENAI_API_KEY=sk-...
+└── team.py       # the agents and team configurations below
+```
+
 ## RoundRobinGroupChat: Take Turns
 
 The simplest team is `RoundRobinGroupChat`: agents speak in a fixed, repeating order. It's perfect for the **reflection pattern** — one agent produces work, another critiques it, and they loop until the critic is satisfied.
 
 ```python
+# team.py
 import asyncio
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
@@ -72,6 +81,7 @@ A team needs a clear stop signal, or it loops indefinitely. AutoGen ships severa
 Combine them with `|` (OR) and `&` (AND):
 
 ```python
+# team.py
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 
 # Stop on approval OR after 10 messages — whichever comes first.
@@ -85,6 +95,7 @@ Always pair a "smart" condition (like `TextMentionTermination`) with a hard cap 
 `run_stream` is great for watching live, but in code you often want the result object. `run` returns a `TaskResult`:
 
 ```python
+# team.py
 result = await team.run(task="Write a tagline for a budgeting app.")
 
 print(result.stop_reason)          # why the team stopped
@@ -94,6 +105,7 @@ print(result.messages[-1].content) # the final message
 Teams are **stateful** — they remember the previous conversation. Before running a fresh, unrelated task, reset:
 
 ```python
+# team.py
 await team.reset()
 ```
 
@@ -101,7 +113,10 @@ await team.reset()
 
 Round-robin is predictable but rigid. When you have several specialists and the right next speaker depends on context, use `SelectorGroupChat`. It uses a model to choose who speaks next based on each agent's description.
 
+Replace the team configuration in `team.py`:
+
 ```python
+# team.py
 from autogen_agentchat.teams import SelectorGroupChat
 
 planner = AssistantAgent(
@@ -146,6 +161,7 @@ The `description` field is now doing real work — it's what the selector model 
 Add a `UserProxyAgent` to pause for human input — useful for approvals or supplying information only a person has. It's just another team member:
 
 ```python
+# team.py
 from autogen_agentchat.agents import UserProxyAgent
 
 user = UserProxyAgent("user", input_func=input)  # prompts via the console

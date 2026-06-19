@@ -41,11 +41,20 @@ export OPENAI_API_KEY="sk-..."
 
 > **Note:** CrewAI uses [LiteLLM](https://docs.litellm.ai) under the hood, so the same code works with Anthropic, Google, Groq, local Ollama models, and more — you just change the model string and the corresponding API key.
 
+## Project Setup
+
+```text
+first-crew/
+├── .env          # OPENAI_API_KEY=sk-...
+└── crew.py       # agents, tasks, and the crew below
+```
+
 ## Step 1: Define Your Agents
 
 An agent's behavior is shaped almost entirely by three fields: **role**, **goal**, and **backstory**. Be specific — these become part of the system prompt, so vague roles produce vague work.
 
 ```python
+# crew.py
 from crewai import Agent
 
 researcher = Agent(
@@ -78,7 +87,10 @@ Notice the `{topic}` placeholder in the researcher's goal. CrewAI replaces it at
 
 Each task needs a **description** (what to do) and an **expected_output** (what "done" looks like). The expected output is the single most important field for quality — the more concretely you describe the finished result, the better the agent performs.
 
+Add to `crew.py`:
+
 ```python
+# crew.py
 from crewai import Task
 
 research_task = Task(
@@ -110,7 +122,10 @@ We never tell the writer *where* the research comes from. In a sequential crew, 
 
 ## Step 3: Assemble and Run the Crew
 
+Add to `crew.py`:
+
 ```python
+# crew.py
 from crewai import Crew, Process
 
 crew = Crew(
@@ -138,6 +153,7 @@ With `verbose=True` you'll watch each agent think and hand off its work. The fin
 `kickoff()` returns a `CrewOutput`, not a plain string. The most useful attributes:
 
 ```python
+# crew.py
 result.raw                 # the final task's output as a string
 result.tasks_output        # a list of every task's output
 result.tasks_output[0].raw # just the researcher's notes

@@ -29,11 +29,22 @@ export OPENAI_API_KEY="sk-..."
 
 > **Model-agnostic:** the `'openai:gpt-4o'` string below can become `'anthropic:claude-...'`, `'google:gemini-...'`, and more — you change the string, not your agent code.
 
+## Project Setup
+
+This tutorial is a single script. Create a folder with one file:
+
+```text
+pydantic-ai-quickstart/
+├── .env          # OPENAI_API_KEY=sk-...
+└── agent.py      # the agent code below
+```
+
 ## Step 1: A Minimal Agent
 
 An `Agent` ties a model to a system prompt. `run_sync` runs it and returns a result whose `.output` holds the answer.
 
 ```python
+# agent.py
 from pydantic_ai import Agent
 
 agent = Agent(
@@ -50,9 +61,10 @@ By default `.output` is a string. The interesting part is making it something be
 
 ## Step 2: Typed, Structured Output
 
-Here's the feature that sets Pydantic AI apart. Declare a Pydantic model and pass it as `output_type`; the agent is now guaranteed to return an instance of that model — validated.
+Here's the feature that sets Pydantic AI apart. Declare a Pydantic model and pass it as `output_type`; the agent is now guaranteed to return an instance of that model — validated. Update `agent.py`:
 
 ```python
+# agent.py
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
@@ -79,14 +91,16 @@ This is the whole reason to reach for Pydantic AI: **the boundary between the LL
 `run_sync` is the convenient wrapper; in async code use `await agent.run(...)`:
 
 ```python
+# agent.py
 async def main():
     result = await agent.run("Tell me about the capital of France.")
     print(result.output)
 ```
 
-To hold a conversation, feed the previous run's messages back in via `message_history`:
+To hold a conversation, feed the previous run's messages back in via `message_history`. Update `agent.py`:
 
 ```python
+# agent.py
 agent = Agent("openai:gpt-4o", system_prompt="You are a helpful assistant.")
 
 first = agent.run_sync("My name is Dawson.")
