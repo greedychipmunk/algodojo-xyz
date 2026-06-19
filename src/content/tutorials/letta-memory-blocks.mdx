@@ -1,0 +1,159 @@
+---
+title: "Letta Memory: Core Blocks & Archival"
+slug: "letta-memory-blocks"
+description: "Memory is what makes Letta different. Learn how self-editing core memory blocks keep key facts in context, and how archival memory gives your agent unbounded, searchable long-term recall."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "memory", "archival-memory", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-16"
+updatedAt: "2026-06-16"
+author: "Algo Dojo"
+---
+
+## Why Memory Is the Whole Point
+
+In [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) you created an agent, sent it a message, and watched it recall your name in a brand-new process. That demo works because Letta's memory is server-persisted — but the mechanics behind it deserve a closer look, because they're what set Letta apart from every other agent framework you might have encountered.
+
+Every LLM has a context window: a finite chunk of text the model can "see" at any one time. Most agent frameworks manage this transparently. They stuff the conversation history into the prompt, append whatever system instructions they need, and hope the whole thing fits. When it doesn't, they truncate, summarize, or fail silently. The limitation is baked in: the longer an agent runs, the less of its own history it can hold in its head.
+
+Letta sidesteps this with a two-tier memory architecture designed around that constraint.
+
+**Core memory** is the content that's always in the context window. It's small, structured, and precious. Think of it as the agent's working notes — a handful of named blocks containing the most important facts about the conversation: who the human is, what the agent's role is, ongoing preferences. The agent has built-in tools to rewrite these blocks as it learns new things, so the content stays current without growing unbounded.
+
+**Archival memory** is the tier that scales without limit. It's a vector-indexed store that lives on the Letta server. When the agent needs to recall something that wouldn't fit in core memory — a long research document, a full history of past sessions, a library of product specs — it stores entries in archival memory and retrieves relevant passages via semantic search when it needs them.
+
+Together, the two tiers let an agent be both fast (core memory is always at hand) and comprehensive (archival memory can hold everything). You don't write the retrieval logic — the agent decides when to query archival memory using a built-in tool, the same way it decides when to update a core block.
+
+## Project Setup
+
+This tutorial builds directly on the server and agent you created in the first tutorial. You need:
+
+- A Letta server running at `localhost:8283` (start it with the Docker command from the previous tutorial if it's not already running).
+- An `agent_id` — the ID that was printed when you called `agents.create`. Paste it into the script below.
+- `letta-client` installed: `pip install letta-client`.
+
+Everything lives in one file:
+
+```text
+letta-memory/
+└── memory_demo.py   # inspect and edit core memory, then add archival passages
+```
+
+No new dependencies, no new server, no migrations. The Letta server handles all the storage automatically.
+
+## Core Memory Blocks
+
+When you created your agent in the first tutorial you passed a `memory_blocks` list with two entries: `human` and `persona`. Those are the two standard core blocks Letta creates by default, but you can add as many as you want with any labels that make sense for your use case. Each block has three properties:
+
+- **`label`** — the name you use to address the block in code and that the agent uses internally.
+- **`value`** — the current contents of the block, as a plain string. The agent reads this on every turn.
+- **`limit`** — the maximum character count for the block's value. This is the knob that keeps core memory from ballooning and crowding out the rest of the context.
+
+Reading a block from Python is a single API call:
+
+```python
+# memory_demo.py
+from letta_client import Letta
+
+client = Letta(base_url="http://localhost:8283")
+agent_id = "agent-..."  # an agent you created earlier
+
+# Read a core memory block by its label.
+human_block = client.agents.blocks.retrieve(agent_id=agent_id, block_label="human")
+print("Before:", human_block.value)
+
+# You can also edit a block directly from your code.
+client.agents.blocks.modify(
+    agent_id=agent_id,
+    block_label="human",
+    value="The human's name is Brad. They live in Berlin.",
+)
+```
+
+`blocks.retrieve` returns a typed object. The `value` attribute is the current string content of the block. `blocks.modify` overwrites it with whatever string you supply.
+
+This external write path is useful for bootstrapping an agent with information you already have — say, pulling a user profile from your database when the user first connects. Instead of waiting for the user to tell the agent their name, you can prefill the `human` block so the agent starts the conversation already knowing who it's talking to.
+
+## Watching the Agent Rewrite Its Own Memory
+
+The more interesting case is when the *agent* updates its own memory — and you watch it happen. Letta gives every agent a built-in `core_memory_replace` tool. The agent can call this tool autonomously during a conversation, deciding on its own that a piece of information is worth recording in a block. You never have to wire this up; it's part of every agent by default.
+
+Here's how to observe it. Send the agent a new fact, then read the block back and see what changed:
+
+```python
+# Tell the agent something new and let IT update its own memory.
+response = client.agents.messages.create(
+    agent_id=agent_id,
+    messages=[{"role": "user", "content": "By the way, I just adopted a dog named Biscuit."}],
+)
+
+human_block = client.agents.blocks.retrieve(agent_id=agent_id, block_label="human")
+print("After:", human_block.value)  # now mentions Biscuit
+```
+
+After this runs, `human_block.value` will contain something like:
+
+```
+The human's name is Brad. They live in Berlin. They recently adopted a dog named Biscuit.
+```
+
+The agent decided that "I just adopted a dog named Biscuit" is the kind of personal detail worth preserving, called its own memory-editing tool, and wrote the update — all without any instruction from you to do so.
+
+If you look at `response.messages` you'll see the full internal trace: a `reasoning_message` where the agent considers the information, a `tool_call_message` where it invokes `core_memory_replace`, and then the final `assistant_message` reply. Letta doesn't hide this inner monologue; it surfaces it so you can understand exactly why the agent made the decision it made.
+
+This self-editing loop is what makes Letta agents genuinely stateful rather than just prompt-stuffed. The agent actively curates what it considers worth keeping, bounded by the block's character limit, so the context window stays clean no matter how long the conversation runs.
+
+## Archival Memory for Unbounded Recall
+
+Core memory is fast and always available, but it's small by design. When you need to give an agent access to a large body of knowledge — a product catalog, a document library, a history of every past conversation — core memory isn't the right tool. That's what archival memory is for.
+
+Archival memory is a vector-indexed store on the Letta server. You insert text passages into it, and Letta embeds them automatically using the embedding model you specified when you created the agent. When the agent needs to recall something, it uses a built-in `archival_memory_search` tool to run a semantic search against those embeddings and retrieve the most relevant passages.
+
+Inserting and listing passages from Python looks like this:
+
+```python
+# Archival memory is unbounded, searchable long-term storage.
+client.agents.passages.create(
+    agent_id=agent_id,
+    text="Brad's favorite programming language is Rust, but he writes Python at work.",
+)
+
+# List what's stored in archival memory.
+passages = client.agents.passages.list(agent_id=agent_id)
+for passage in passages:
+    print(passage.text)
+```
+
+`passages.create` embeds the text and stores it. `passages.list` returns everything currently in archival memory for this agent — useful for debugging and auditing, though in practice agents query it through the `archival_memory_search` tool rather than listing everything.
+
+The agent doesn't retrieve archival passages on every turn. It only reaches for them when it decides the question at hand warrants a search — the same way a human might decide to look something up rather than relying on what they already have in working memory. If you ask the agent "what's Brad's favorite programming language?", it will recognize the query, call `archival_memory_search` with a relevant query string, get the passage about Rust back, and use it to answer. None of this requires special configuration from you; it's the default behavior of every Letta agent once archival memory contains relevant content.
+
+You can insert as many passages as you like. There's no practical limit. Each one gets its own embedding vector and can be retrieved independently. This makes archival memory the right place for long documents: split them into paragraphs or chunks before inserting, so the retrieval results are granular and useful rather than giant walls of text.
+
+## Core vs. Archival: When to Use Which
+
+The two memory tiers aren't interchangeable. Each has a clear job:
+
+| | Core memory | Archival memory |
+|---|---|---|
+| **Size** | Small — character-limited per block | Unbounded — as many passages as you need |
+| **Availability** | Always in the context window | Retrieved on demand via semantic search |
+| **Best for** | Identity, preferences, ongoing facts | History, documents, reference knowledge |
+| **Who writes it** | Agent (autonomously) or your code | Agent (via tool) or your code |
+| **Performance** | Instant — already in context | Requires an embedding search call |
+
+A few rules of thumb:
+
+- Use core memory for facts the agent needs on *every single turn* — the user's name, their timezone, the agent's own persona. If it's absent it'll be missed immediately.
+- Use archival memory for facts the agent needs *occasionally*, when the right question triggers a lookup. Product specs, historical records, long conversations, uploaded documents — all good candidates for archival.
+- When in doubt, prefer archival. Core memory is the scarce resource. Archival memory is cheap and scales; core memory fills up and competes with the conversation itself for space.
+
+The pattern that works well in practice is a small, tight set of core blocks that capture the essentials, plus a growing archival store that the agent mines whenever a query seems to need historical context.
+
+## Where to Go Next
+
+You now have full control over both memory tiers — you can read and write core blocks from code, watch the agent self-edit, and build up an archival knowledge base that scales without limit.
+
+The next step is giving your agent the ability to act on the outside world. In [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) you'll register Python functions the agent can call autonomously — so it can look up live data, send notifications, or integrate with external services during a conversation, using the same tool-calling mechanism you've already seen powering memory updates under the hood.
