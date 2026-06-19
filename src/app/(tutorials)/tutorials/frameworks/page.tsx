@@ -162,7 +162,25 @@ export default async function FrameworksPage() {
           <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
             At a glance
           </h2>
-          <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-bg-card shadow-card">
+          {/* Scroll hint — shown only where the 920px table overflows (below lg). */}
+          <p className="mt-2 flex items-center gap-2 text-sm text-text-muted lg:hidden">
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 12h16M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"
+              />
+            </svg>
+            Swipe to compare all four frameworks
+          </p>
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-bg-card shadow-card lg:mt-8">
             <table className="w-full min-w-[920px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-border">
