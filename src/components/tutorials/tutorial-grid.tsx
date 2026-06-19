@@ -1,13 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES, TUTORIAL_TIERS } from "@/lib/constants";
+import { TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES } from "@/lib/constants";
 import type { Tutorial } from "@/lib/types";
 import { TutorialCard } from "./tutorial-card";
 
 type CategoryFilter = "all" | Tutorial["category"];
 type DifficultyFilter = "all" | Tutorial["difficulty"];
-type TierFilter = "all" | Tutorial["tier"];
 
 interface TutorialGridProps {
   tutorials: Tutorial[];
@@ -79,7 +78,6 @@ function FilterGroup<T extends string>({
 export function TutorialGrid({ tutorials }: TutorialGridProps) {
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [difficulty, setDifficulty] = useState<DifficultyFilter>("all");
-  const [tier, setTier] = useState<TierFilter>("all");
 
   const filteredTutorials = useMemo(
     () =>
@@ -87,11 +85,10 @@ export function TutorialGrid({ tutorials }: TutorialGridProps) {
         const categoryMatches = category === "all" || tutorial.category === category;
         const difficultyMatches =
           difficulty === "all" || tutorial.difficulty === difficulty;
-        const tierMatches = tier === "all" || tutorial.tier === tier;
 
-        return categoryMatches && difficultyMatches && tierMatches;
+        return categoryMatches && difficultyMatches;
       }),
-    [category, difficulty, tier, tutorials],
+    [category, difficulty, tutorials],
   );
 
   return (
@@ -121,19 +118,6 @@ export function TutorialGrid({ tutorials }: TutorialGridProps) {
           ]}
           selected={difficulty}
           onSelect={setDifficulty}
-        />
-
-        <FilterGroup<TierFilter>
-          label="Tier"
-          options={[
-            { label: "All", value: "all" },
-            ...TUTORIAL_TIERS.map((option) => ({
-              label: option.label,
-              value: option.value,
-            })),
-          ]}
-          selected={tier}
-          onSelect={setTier}
         />
       </div>
 

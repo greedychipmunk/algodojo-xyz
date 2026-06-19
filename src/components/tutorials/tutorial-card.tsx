@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES, TUTORIAL_TIERS } from "@/lib/constants";
+import { TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES } from "@/lib/constants";
 import type { Tutorial } from "@/lib/types";
 
 interface TutorialCardProps {
@@ -14,14 +14,8 @@ function truncateText(text: string, maxLength: number): string {
   return `${text.slice(0, maxLength).trimEnd()}…`;
 }
 
-function getLabel(
-  value: Tutorial["category"] | Tutorial["difficulty"] | Tutorial["tier"],
-) {
-  const labels = [
-    ...TUTORIAL_CATEGORIES,
-    ...TUTORIAL_DIFFICULTIES,
-    ...TUTORIAL_TIERS,
-  ];
+function getLabel(value: Tutorial["category"] | Tutorial["difficulty"]) {
+  const labels = [...TUTORIAL_CATEGORIES, ...TUTORIAL_DIFFICULTIES];
   return labels.find((item) => item.value === value)?.label ?? value;
 }
 
@@ -29,7 +23,6 @@ export function TutorialCard({ tutorial }: TutorialCardProps) {
   const description = truncateText(tutorial.description, 140);
   const categoryLabel = getLabel(tutorial.category);
   const difficultyLabel = getLabel(tutorial.difficulty);
-  const tierLabel = getLabel(tutorial.tier);
 
   return (
     <Link
@@ -44,9 +37,6 @@ export function TutorialCard({ tutorial }: TutorialCardProps) {
           </span>
           <span className="rounded-full border border-border bg-bg-secondary px-3 py-1 text-text-secondary">
             {difficultyLabel}
-          </span>
-          <span className="rounded-full border border-border bg-bg-secondary px-3 py-1 text-text-secondary">
-            {tierLabel}
           </span>
         </div>
 
