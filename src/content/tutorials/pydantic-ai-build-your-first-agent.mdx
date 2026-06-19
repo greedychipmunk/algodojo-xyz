@@ -1,0 +1,117 @@
+---
+title: "Build Your First Pydantic AI Agent"
+slug: "pydantic-ai-build-your-first-agent"
+description: "Get started with Pydantic AI, the type-safe agent framework from the team behind Pydantic. You'll build an agent, then use its headline feature — guaranteed, validated structured output — so your LLM returns typed objects instead of strings to parse."
+tier: "free"
+category: "ai"
+tags: ["pydantic-ai", "ai-agents", "structured-output", "python", "beginner"]
+difficulty: "beginner"
+estimatedReadTime: 10
+publishedAt: "2026-05-28"
+updatedAt: "2026-05-28"
+author: "Algo Dojo"
+---
+
+## What Is Pydantic AI?
+
+[Pydantic AI](https://ai.pydantic.dev) is an agent framework from the team behind Pydantic — the validation library that underpins most of the Python AI ecosystem. Its pitch is a *"FastAPI-like"* developer experience for building agents, and its defining feature is **type safety**: you declare the shape of what you want back, and the framework guarantees the model's output matches it (or retries until it does).
+
+If CrewAI is about crews and LangGraph is about graphs, Pydantic AI is about **typed, validated results**. That makes it a natural fit any time an LLM's output feeds real code.
+
+## Prerequisites
+
+Python 3.10+ and an OpenAI API key.
+
+```bash
+pip install pydantic-ai
+export OPENAI_API_KEY="sk-..."
+```
+
+> **Model-agnostic:** the `'openai:gpt-4o'` string below can become `'anthropic:claude-...'`, `'google:gemini-...'`, and more — you change the string, not your agent code.
+
+## Step 1: A Minimal Agent
+
+An `Agent` ties a model to a system prompt. `run_sync` runs it and returns a result whose `.output` holds the answer.
+
+```python
+from pydantic_ai import Agent
+
+agent = Agent(
+    "openai:gpt-4o",
+    system_prompt="You are a concise assistant. Answer in one sentence.",
+)
+
+result = agent.run_sync("What is Pydantic AI?")
+print(result.output)
+print(result.usage())   # token usage for the run
+```
+
+By default `.output` is a string. The interesting part is making it something better.
+
+## Step 2: Typed, Structured Output
+
+Here's the feature that sets Pydantic AI apart. Declare a Pydantic model and pass it as `output_type`; the agent is now guaranteed to return an instance of that model — validated.
+
+```python
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+class CapitalInfo(BaseModel):
+    city: str
+    country: str
+    population_millions: float
+
+agent = Agent("openai:gpt-4o", output_type=CapitalInfo)
+
+result = agent.run_sync("Tell me about the capital of Japan.")
+print(result.output)
+#> city='Tokyo' country='Japan' population_millions=37.4
+print(type(result.output))
+#> <class '__main__.CapitalInfo'>
+```
+
+`result.output` is a real `CapitalInfo` object — your editor autocompletes its fields, and the value is type-checked. No JSON parsing, no `try/except` around `json.loads`, no regex. If the model returns something that doesn't fit the schema, Pydantic AI automatically asks it to try again.
+
+This is the whole reason to reach for Pydantic AI: **the boundary between the LLM and your code is a validated type.**
+
+## Step 3: Async and Multi-Turn
+
+`run_sync` is the convenient wrapper; in async code use `await agent.run(...)`:
+
+```python
+async def main():
+    result = await agent.run("Tell me about the capital of France.")
+    print(result.output)
+```
+
+To hold a conversation, feed the previous run's messages back in via `message_history`:
+
+```python
+agent = Agent("openai:gpt-4o", system_prompt="You are a helpful assistant.")
+
+first = agent.run_sync("My name is Dawson.")
+second = agent.run_sync(
+    "What's my name?",
+    message_history=first.all_messages(),   # carry the context forward
+)
+print(second.output)   # mentions "Dawson"
+```
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| Reading `result.data` | Renamed in Pydantic AI v1 | Use `result.output` |
+| `result_type=` keyword | Old API name | Use `output_type=` |
+| Parsing `.output` as a string | With `output_type` it's already a typed object | Access fields directly: `result.output.city` |
+| No API key | `openai:` model can't authenticate | Export `OPENAI_API_KEY` |
+| Forgetting `message_history` | Each `run` starts fresh | Pass `first.all_messages()` to continue a conversation |
+
+## Where to Go Next
+
+You've got a typed agent. Next, give it abilities and context:
+
+- [Tools and Dependency Injection in Pydantic AI](/tutorials/pydantic-ai-tools-and-dependencies) — let the agent call your functions and inject type-safe dependencies (databases, clients, config).
+- Then [Validation, Retries, and Streaming in Pydantic AI](/tutorials/pydantic-ai-validation-and-streaming) for self-correcting, production-grade reliability.
+
+New to agents entirely? Start with [Introduction to AI Agents: Build the Loop From Scratch](/tutorials/intro-to-ai-agents).

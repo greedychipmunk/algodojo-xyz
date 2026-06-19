@@ -1,0 +1,149 @@
+---
+title: "Tools and Dependency Injection in Pydantic AI"
+slug: "pydantic-ai-tools-and-dependencies"
+description: "Give Pydantic AI agents real abilities and real context. Register tools the model can call, then use type-safe dependency injection to pass databases, clients, and config into your tools and dynamic instructions — without globals."
+tier: "free"
+category: "ai"
+tags: ["pydantic-ai", "ai-agents", "tools", "dependency-injection", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-04"
+updatedAt: "2026-06-04"
+author: "Algo Dojo"
+---
+
+## Beyond a Single Call
+
+The [typed agent](/tutorials/pydantic-ai-build-your-first-agent) from the last tutorial could only reason from the prompt. Real agents need to *act* — look up an account, hit an API, query a database — and they need **context** about who they're acting for.
+
+Pydantic AI handles both with two features that work together: **tools** (functions the model can call) and **dependency injection** (a type-safe way to hand those tools the data and connections they need). The DI part is what makes Pydantic AI feel like FastAPI for agents.
+
+## Setup
+
+```bash
+pip install pydantic-ai
+export OPENAI_API_KEY="sk-..."
+```
+
+## Tools: Two Flavors
+
+A tool is a function you register on the agent. Pydantic AI builds the schema from your type hints and the docstring.
+
+- `@agent.tool_plain` — for tools that need nothing from the run context.
+- `@agent.tool` — for tools that receive a `RunContext` (and through it, your dependencies).
+
+```python
+from pydantic_ai import Agent
+
+agent = Agent("openai:gpt-4o", system_prompt="You are a banking assistant.")
+
+@agent.tool_plain
+def support_hours() -> str:
+    """Return the bank's support hours."""
+    return "Support is open 9am–5pm ET, Monday to Friday."
+```
+
+That alone gives the model a callable tool. But the useful tools need *context* — which customer? which database? That's where dependencies come in.
+
+## Dependency Injection
+
+Instead of reaching for globals, you declare a **dependencies type** and pass an instance at run time. The agent threads it through to every tool via `RunContext`. Define the deps as a dataclass:
+
+```python
+from dataclasses import dataclass
+
+class DatabaseConn:
+    """Stand-in for your real database client."""
+    _names = {1: "Dawson", 2: "Maria"}
+    _balances = {1: 1240.55, 2: 89.10}
+
+    def name(self, customer_id: int) -> str:
+        return self._names[customer_id]
+
+    def balance(self, customer_id: int) -> float:
+        return self._balances[customer_id]
+
+@dataclass
+class Deps:
+    customer_id: int
+    db: DatabaseConn
+```
+
+Tell the agent about the deps type with `deps_type`, and ask for typed output while we're at it:
+
+```python
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent, RunContext
+
+class SupportReply(BaseModel):
+    advice: str = Field(description="The message to send the customer.")
+    block_card: bool = Field(description="Whether to freeze the customer's card.")
+    risk: int = Field(description="Risk level, 0–10.")
+
+agent = Agent(
+    "openai:gpt-4o",
+    deps_type=Deps,
+    output_type=SupportReply,
+    instructions="You are a bank support agent. Help the customer and assess risk.",
+)
+```
+
+### Tools That Use Dependencies
+
+Now tools can read `ctx.deps` — fully typed. If you mistype `ctx.deps.customer_id`, a static type checker catches it before you ever run the agent.
+
+```python
+@agent.tool
+def account_balance(ctx: RunContext[Deps]) -> str:
+    """Look up the current account balance for the customer."""
+    bal = ctx.deps.db.balance(ctx.deps.customer_id)
+    return f"${bal:.2f}"
+```
+
+### Dynamic Instructions From Dependencies
+
+Dependencies aren't just for tools — you can build part of the system prompt from them at run time with `@agent.instructions`:
+
+```python
+@agent.instructions
+def add_customer_name(ctx: RunContext[Deps]) -> str:
+    return f"You are speaking with {ctx.deps.db.name(ctx.deps.customer_id)}."
+```
+
+## Run It
+
+Pass the dependencies into `run_sync` via `deps=`:
+
+```python
+deps = Deps(customer_id=1, db=DatabaseConn())
+
+result = agent.run_sync(
+    "Hi, did my last payment go through? What's my balance?",
+    deps=deps,
+)
+print(result.output)
+#> advice='Hi Dawson, your balance is $1240.55 ...' block_card=False risk=2
+```
+
+The agent greeted the customer by name (dynamic instruction), called `account_balance` (tool + deps), and returned a validated `SupportReply` — all type-safe, end to end.
+
+## Why DI Beats Globals
+
+You could have stashed the DB connection in a module global. Dependency injection is better because:
+
+- **Testable** — pass a fake `DatabaseConn` in tests; no monkeypatching.
+- **Type-checked** — `RunContext[Deps]` means tools can't reference a field that doesn't exist.
+- **Per-run** — each request carries its own `customer_id`; no shared mutable state between concurrent runs.
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| Using `@agent.tool` without a `RunContext` param | That decorator *requires* `ctx` | Use `@agent.tool_plain` for context-free tools |
+| Forgetting `deps=` in `run_sync` | Tools get no dependencies | Pass `deps=Deps(...)` on every run |
+| `deps_type` doesn't match what you pass | Type errors / wrong attributes | Keep the dataclass and `deps_type` in sync |
+| Thin tool docstrings | Model doesn't know when to call | Describe what the tool does and when to use it |
+
+## Where to Go Next
+
+Your agent can now act with full context. The last piece is trust: in [Validation, Retries, and Streaming in Pydantic AI](/tutorials/pydantic-ai-validation-and-streaming), you'll make the agent self-correct invalid output and stream results as they're produced.
