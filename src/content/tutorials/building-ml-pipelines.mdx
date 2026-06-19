@@ -38,8 +38,10 @@ pip install scikit-learn joblib
 
 ```text
 ml-pipeline/
-├── train.py      # load data, build + evaluate the pipeline, persist the model
-└── predict.py    # load the saved model and score new data
+├── train.py            # load data, build + evaluate the pipeline, persist the model
+├── tumor_model.joblib  # saved pipeline, written by train.py
+├── new_sample.csv      # one example row to score, written by train.py
+└── predict.py          # load the saved model and score new data
 ```
 
 ## Step 1: Load and Sanity-Check the Data
@@ -139,7 +141,11 @@ Add to `train.py`:
 import joblib
 
 joblib.dump(pipe, "tumor_model.joblib")
+# save one example row so predict.py has something to score
+X_test.iloc[[0]].to_csv("new_sample.csv", index=False)
 ```
+
+Running `train.py` writes both `tumor_model.joblib` and `new_sample.csv` to disk, giving `predict.py` everything it needs to run without any extra setup.
 
 In a separate file, `predict.py`, load the model you just saved:
 
