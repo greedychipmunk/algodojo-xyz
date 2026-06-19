@@ -38,6 +38,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.5,
     },
     {
+      url: `${SITE_METADATA.siteUrl}/about/dawson-blackhouse`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.4,
+    },
+    {
       url: `${SITE_METADATA.siteUrl}/contact`,
       lastModified: new Date(),
       changeFrequency: "yearly",

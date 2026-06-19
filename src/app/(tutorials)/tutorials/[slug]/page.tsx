@@ -2,9 +2,18 @@ import { notFound } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { TableOfContents } from "@/components/tutorials/table-of-contents";
+import {
+  AuthorByline,
+  AuthorBio,
+} from "@/components/tutorials/author-byline";
+import { AUTHOR, SITE_METADATA } from "@/lib/constants";
 import { getAllTutorials, getTutorialBySlug } from "@/lib/content";
 import { renderMarkdown } from "@/lib/markdown";
-import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
+import {
+  generatePageMetadata,
+  breadcrumbJsonLd,
+  articleJsonLd,
+} from "@/lib/metadata";
 
 interface TutorialDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -28,6 +37,7 @@ export async function generateMetadata({ params }: TutorialDetailPageProps) {
     type: "article",
     publishedTime: tutorial.publishedAt,
     modifiedTime: tutorial.updatedAt,
+    author: { name: AUTHOR.name, url: `${SITE_METADATA.siteUrl}${AUTHOR.url}` },
   });
 }
 
@@ -62,6 +72,18 @@ export default async function TutorialDetailPage({
           ]),
         }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: articleJsonLd({
+            title: tutorial.title,
+            description: tutorial.description,
+            path: `/tutorials/${tutorial.slug}`,
+            publishedAt: tutorial.publishedAt,
+            updatedAt: tutorial.updatedAt,
+          }),
+        }}
+      />
       <article className="py-20 sm:py-28">
         <Container>
           <div className="lg:grid lg:grid-cols-[1fr_250px] lg:gap-12">
@@ -76,21 +98,16 @@ export default async function TutorialDetailPage({
               <p className="text-text-secondary mt-4 text-lg">
                 {tutorial.description}
               </p>
-              <div className="text-text-muted mt-4 flex items-center gap-4 text-sm">
-                <span>By {tutorial.author}</span>
-                <span>
-                  {new Date(tutorial.publishedAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </span>
-                <span>{tutorial.estimatedReadTime} min read</span>
-              </div>
+              <AuthorByline
+                publishedAt={tutorial.publishedAt}
+                estimatedReadTime={tutorial.estimatedReadTime}
+              />
 
               <div className="prose mt-12 max-w-none">
                 <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
               </div>
+
+              <AuthorBio />
             </div>
 
             <aside className="hidden lg:block">

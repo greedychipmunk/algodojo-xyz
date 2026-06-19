@@ -8,6 +8,19 @@ export const SITE_METADATA: SiteMetadata = {
   ogImage: "/images/og-default.png",
 };
 
+/**
+ * Site-wide content author. Rendered as the byline on tutorials and surfaced as
+ * a schema.org `Person` for SEO (E-E-A-T). Distinct from the publishing
+ * organization (Algo Dojo, LLC), which remains the frontmatter `author`.
+ */
+export const AUTHOR = {
+  name: "Dawson Blackhouse",
+  role: "AI Solutions Consultant",
+  bio: "Dawson Blackhouse is an AI Solutions Consultant at Algo Dojo, where he helps companies apply agentic AI and machine learning to automate and optimize real-world business workflows.",
+  image: "/images/dawson-blackhouse.png",
+  url: "/about/dawson-blackhouse",
+} as const;
+
 export const NAV_ITEMS: NavItem[] = [
   { label: "Services", href: "/services" },
   { label: "Tutorials", href: "/tutorials" },
