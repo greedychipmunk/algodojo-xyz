@@ -1,0 +1,152 @@
+---
+title: "Give Your Letta Agent Custom Tools"
+slug: "letta-agent-tools"
+description: "Turn a Letta agent into a doer. Register your own Python functions as tools, declare their pip dependencies, pass secrets securely, and control whether the agent keeps Letta's built-in tools."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "tools", "function-calling", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 12
+publishedAt: "2026-06-17"
+updatedAt: "2026-06-17"
+author: "Algo Dojo"
+---
+
+## Why Tools?
+
+The past two tutorials gave your Letta agent a persistent identity and a growing memory. In [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) it learned to hold facts across processes. In [Letta Memory: Core Blocks & Archival](/tutorials/letta-memory-blocks) it learned to store and retrieve an unlimited body of knowledge. But everything it knows, it knows from what you told it — or what it remembered from the conversation. It can't check today's price of oil, call a webhook, or query an API. It can only reason from the past.
+
+**Tools** are how you change that. A tool is a Python function your agent can call during a conversation to take a real action or fetch live data. The model decides when a tool is relevant, constructs the arguments, and Letta executes the function on the agent's behalf. The return value flows back into the conversation as if the agent had just looked something up — because it did.
+
+You've already seen this pattern at work under the hood. When an agent updates its own core memory or searches archival memory, it's calling a built-in tool. The same mechanism that powers `core_memory_replace` is the one you'll use to give your agent access to external APIs. You're not learning something new; you're extending something that was already running every time you sent a message.
+
+The difference is that a custom tool can do anything a Python function can do: hit a REST endpoint, query a database, run a calculation, send a Slack message. Once you register it, the agent reaches for it autonomously whenever a user prompt makes it relevant.
+
+## Project Setup
+
+This tutorial uses two files: one for the tool function itself, and one for the agent setup. Keeping them separate makes it easy to add more tools later — just add functions to `tools.py` and register them in `create_agent.py`.
+
+```text
+letta-tools/
+├── tools.py          # the custom tool function
+└── create_agent.py   # register the tool and attach it to an agent
+```
+
+You need the same setup as the previous tutorials:
+
+- A Letta server running at `localhost:8283`. If it's not still running from before, bring it back up with the Docker command from [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent).
+- `letta-client` installed: `pip install letta-client`.
+
+No new dependencies beyond what the tool itself imports. The `requests` library used in the example below is standard, but even that you don't install separately — you'll tell Letta to handle it, as you'll see in the next section.
+
+## Tools Are Just Python Functions
+
+In Letta, a tool starts as an ordinary Python function. What makes it usable by the agent is two things: **type hints** and a **docstring**. Together they define the schema Letta sends to the model — the name of the tool, what each argument means, and what the function returns. Write vague type hints or a thin docstring and the agent won't know when to reach for the tool. Write them clearly and the agent will use it exactly when it should.
+
+Here's a tool that fetches the current exchange rate between two currencies:
+
+```python
+# tools.py
+def get_exchange_rate(base: str, quote: str) -> str:
+    """Get the current exchange rate between two currency codes, e.g. USD and EUR.
+
+    Args:
+        base: The base currency code, like "USD".
+        quote: The quote currency code, like "EUR".
+    """
+    import requests
+
+    url = f"https://open.er-api.com/v6/latest/{base.upper()}"
+    rate = requests.get(url, timeout=10).json()["rates"][quote.upper()]
+    return f"1 {base.upper()} = {rate} {quote.upper()}"
+```
+
+Notice that `import requests` is **inside the function body**, not at the top of the file. This is deliberate and important: Letta executes tool functions inside a sandboxed environment on the server. That environment doesn't share the imports from your local Python process. Any library the function needs must be imported inside the function itself, so the sandbox can resolve it at runtime. Put the import at the module level and it will work fine on your machine but fail on the server when the agent actually calls it.
+
+The return type is `str`. Tools can return any JSON-serializable value, but strings are the simplest choice for anything that reads like a sentence. The model receives whatever you return and incorporates it into its response.
+
+## Registering the Tool with Letta
+
+Once the function is written, you register it with the Letta server using `client.tools.create_from_function`. This call sends the function's source code to the server, inspects its signature and docstring to build the schema, and stores the tool so agents can reference it by name.
+
+```python
+# create_agent.py
+from letta_client import Letta
+from tools import get_exchange_rate
+
+client = Letta(base_url="http://localhost:8283")
+
+# Register the function as a tool. Declare any pip packages it imports.
+rate_tool = client.tools.create_from_function(
+    func=get_exchange_rate,
+    pip_requirements=[{"name": "requests"}],
+)
+print("Created tool:", rate_tool.name)
+```
+
+The `pip_requirements` argument is where you declare the libraries the function imports inside its body. Letta installs them into the sandbox before executing the tool. If your tool only uses the Python standard library you can omit `pip_requirements` entirely — but for anything you'd normally `pip install`, list it here. The format is a list of dicts with a `"name"` key, and optionally a `"version"` key if you need a specific version.
+
+The returned `rate_tool` object has a `name` attribute — a string like `"get_exchange_rate"` — that you'll use in the next step to attach the tool to an agent.
+
+## Attaching the Tool to an Agent
+
+Pass the tool name in the `tools` list when you create an agent. Letta also supports an `include_base_tools` flag that controls whether the agent keeps its built-in memory tools alongside your custom ones:
+
+```python
+# create_agent.py (continued)
+agent = client.agents.create(
+    model="openai/gpt-4o-mini",
+    embedding="openai/text-embedding-3-small",
+    memory_blocks=[{"label": "persona", "value": "You are a concise finance assistant."}],
+    tools=[rate_tool.name],
+    include_base_tools=True,  # keep Letta's built-in memory tools too
+)
+```
+
+Setting `include_base_tools=True` means the agent gets both your tool and Letta's built-in tools like `core_memory_replace` and `archival_memory_search`. If you set it to `False`, the agent only has the tools you explicitly listed. For most agents you want `True` — stripping the memory tools means the agent loses the ability to update its own memory blocks, which defeats one of Letta's core strengths.
+
+If your tool needs to call an external API that requires authentication, pass credentials via `secrets` rather than hardcoding them into the function or storing them in a memory block. Secrets are made available to tools as environment variables at runtime, but they never appear in prompts or in the agent's memory:
+
+```python
+agent = client.agents.create(
+    # ...other args...
+    tools=[rate_tool.name],
+    secrets={"SOME_API_KEY": "..."},  # available to tools at runtime, not stored in prompts
+)
+```
+
+Inside the tool function you'd read this as `os.environ["SOME_API_KEY"]`. The value is injected into the sandbox environment before execution and is never logged or included in any LLM context.
+
+## Calling It
+
+With the agent created, trigger the tool by sending a message that makes the exchange rate relevant. The agent will decide on its own to call `get_exchange_rate`:
+
+```python
+# create_agent.py (continued)
+response = client.agents.messages.create(
+    agent_id=agent.id,
+    messages=[{"role": "user", "content": "How many euros is one US dollar right now?"}],
+)
+for message in response.messages:
+    if message.message_type == "tool_call_message":
+        print("Tool call:", message.tool_call)
+    if message.message_type == "assistant_message":
+        print("Agent:", message.content)
+```
+
+The `response.messages` list gives you the agent's full internal trace, not just the final reply. You'll see a `tool_call_message` that shows exactly what the model decided to call and with what arguments — something like `get_exchange_rate(base="USD", quote="EUR")` — followed by the tool's return value feeding back in, and finally the `assistant_message` with the natural-language answer.
+
+This transparency is one of the reasons Letta is worth using for complex agents. You can see every decision the model made and every value the tool returned, which makes debugging tool calls far easier than frameworks that hide the intermediate steps. If the agent isn't calling your tool when you expect it to, look at the `tool_call_message` trace (or its absence) to understand why — the most common culprit is a docstring that doesn't clearly describe when the tool should be used.
+
+A quick debugging checklist if things don't go as expected:
+
+- **Agent never calls the tool** — the docstring isn't specific enough, or the user's message doesn't obviously trigger it. Try rephrasing the query to be more direct, or add more context to the docstring about when the tool applies.
+- **Tool call fails at runtime** — check that `pip_requirements` lists every library imported inside the function. A missing package in the sandbox will raise an `ImportError`.
+- **No `tool_call_message` in the response** — confirm `include_base_tools=True` (or that you've passed the tool name correctly). An agent with an empty tools list will never call anything.
+- **The agent invents a rate instead of calling the tool** — add an explicit note in the `persona` memory block or system prompt telling the agent to use the tool for live data rather than relying on its training knowledge.
+
+## Where to Go Next
+
+You now have a Letta agent that can reach outside itself — fetching real data, calling APIs, and returning live results back into the conversation. The same pattern you used here scales to anything: database queries, notification services, file reads, internal APIs. Add more functions to `tools.py`, register them with `create_from_function`, and pass their names to the `tools` list.
+
+The next tutorial wires this all together with a real-world delivery channel. In [Talk to Letta Agents via Telegram](/tutorials/letta-telegram-bot) you'll connect your stateful, tool-equipped agent to a Telegram bot — so users can converse with it through a chat interface rather than a Python script, with memory and tool calls running silently in the background on every message.
