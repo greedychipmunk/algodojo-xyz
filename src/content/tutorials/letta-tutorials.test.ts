@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import { describe, expect, it } from "vitest";
+import { describe, expect, test } from "vitest";
 
 const DIR = path.join(process.cwd(), "src/content/tutorials");
 
@@ -25,32 +25,35 @@ function read(slug: string) {
 }
 
 describe("Letta tutorials", () => {
-  it("has exactly the five expected files", () => {
+  test("has exactly the five expected files", () => {
     const lettaFiles = fs
       .readdirSync(DIR)
       .filter((f) => f.startsWith("letta-") && f.endsWith(".mdx"))
       .sort();
+    expect(lettaFiles).toHaveLength(EXPECTED.length);
     expect(lettaFiles).toEqual(EXPECTED.map((e) => `${e.slug}.mdx`).sort());
   });
 
-  it.each(EXPECTED)("$slug has complete, valid frontmatter", (entry) => {
+  test.each(EXPECTED)("$slug has complete, valid frontmatter", (entry) => {
     const fm = read(entry.slug);
     for (const field of REQUIRED_FIELDS) {
       expect(fm[field], `missing ${field}`).toBeDefined();
     }
+    const tags = fm.tags as string[];
     expect(fm.slug).toBe(entry.slug);
     expect(fm.tier).toBe("free");
     expect(fm.category).toBe("ai");
     expect(fm.author).toBe("Algo Dojo");
     expect(fm.difficulty).toBe(entry.difficulty);
     expect(fm.publishedAt).toBe(entry.publishedAt);
+    // New tutorials publish and update on the same day; updatedAt mirrors publishedAt.
     expect(fm.updatedAt).toBe(entry.publishedAt);
-    expect(Array.isArray(fm.tags)).toBe(true);
-    expect((fm.tags as string[])).toContain("letta");
+    expect(Array.isArray(tags)).toBe(true);
+    expect(tags).toContain("letta");
     expect(typeof fm.estimatedReadTime).toBe("number");
   });
 
-  it("orders by ascending publishedAt matching the learning path", () => {
+  test("orders by ascending publishedAt matching the learning path", () => {
     const dates = EXPECTED.map((e) => read(e.slug).publishedAt as string);
     const sorted = [...dates].sort();
     expect(dates).toEqual(sorted);
