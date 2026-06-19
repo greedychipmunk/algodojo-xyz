@@ -11,6 +11,7 @@ export const SITE_METADATA: SiteMetadata = {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Services", href: "/services" },
   { label: "Tutorials", href: "/tutorials" },
+  { label: "Frameworks", href: "/tutorials/frameworks" },
   { label: "Blog", href: "/blog" },
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },
