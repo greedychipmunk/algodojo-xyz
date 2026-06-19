@@ -43,7 +43,6 @@ export default async function TutorialDetailPage({
 
   const contentHtml = await renderMarkdown(tutorial.content);
 
-  const tierVariant = tutorial.tier === "free" ? "success" : "accent";
   const difficultyVariant =
     tutorial.difficulty === "beginner"
       ? "success"
@@ -68,7 +67,6 @@ export default async function TutorialDetailPage({
           <div className="lg:grid lg:grid-cols-[1fr_250px] lg:gap-12">
             <div>
               <div className="flex flex-wrap gap-2">
-                <Badge variant={tierVariant}>{tutorial.tier}</Badge>
                 <Badge variant={difficultyVariant}>{tutorial.difficulty}</Badge>
                 <Badge>{tutorial.category}</Badge>
               </div>
