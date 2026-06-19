@@ -131,8 +131,19 @@ Relying on the function name and docstring is convenient, but sometimes you want
 
 from autogen_core.tools import FunctionTool
 
+# A tiny in-memory knowledge base stands in for a real search backend.
+KB = {
+    "refund": "Refunds are issued to the original payment method within 5 business days.",
+    "shipping": "Standard shipping takes 3-5 business days; express ships next day.",
+    "warranty": "All hardware includes a 1-year limited warranty against defects.",
+}
+
 def query_kb(q: str) -> str:
-    return run_vector_search(q)  # stand-in: replace with your own retrieval/search function
+    """Return the best-matching knowledge-base passage for a question."""
+    for keyword, passage in KB.items():
+        if keyword in q.lower():
+            return passage
+    return "No matching article found."
 
 kb_tool = FunctionTool(
     query_kb,
@@ -149,6 +160,8 @@ agent = AssistantAgent(
 ```
 
 `FunctionTool` gives you a clear place to write the description the model sees, decoupled from the function's own docstring. Functionally, passing a plain function and passing `FunctionTool(func, description=...)` are equivalent — choose based on how much control you want over the surfaced schema.
+
+The `KB` dictionary here keeps the example runnable on its own. In a real app you'd swap the body of `query_kb` for a call into your retrieval stack — a vector search, a database query, a docs API — and the `FunctionTool` wiring above stays exactly the same. The agent only ever sees the description, not how the lookup is implemented.
 
 ## Debugging Tool Use
 
