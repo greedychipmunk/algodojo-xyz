@@ -25,6 +25,14 @@ pip install pydantic-ai
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+pydantic-ai-tools/
+├── .env          # OPENAI_API_KEY=sk-...
+└── agent.py      # the agent, tools, and dependencies below
+```
+
 ## Tools: Two Flavors
 
 A tool is a function you register on the agent. Pydantic AI builds the schema from your type hints and the docstring.
@@ -33,6 +41,7 @@ A tool is a function you register on the agent. Pydantic AI builds the schema fr
 - `@agent.tool` — for tools that receive a `RunContext` (and through it, your dependencies).
 
 ```python
+# agent.py
 from pydantic_ai import Agent
 
 agent = Agent("openai:gpt-4o", system_prompt="You are a banking assistant.")
@@ -47,9 +56,10 @@ That alone gives the model a callable tool. But the useful tools need *context* 
 
 ## Dependency Injection
 
-Instead of reaching for globals, you declare a **dependencies type** and pass an instance at run time. The agent threads it through to every tool via `RunContext`. Define the deps as a dataclass:
+Instead of reaching for globals, you declare a **dependencies type** and pass an instance at run time. The agent threads it through to every tool via `RunContext`. Add to `agent.py`, defining the deps as a dataclass:
 
 ```python
+# agent.py
 from dataclasses import dataclass
 
 class DatabaseConn:
@@ -69,9 +79,10 @@ class Deps:
     db: DatabaseConn
 ```
 
-Tell the agent about the deps type with `deps_type`, and ask for typed output while we're at it:
+Add to `agent.py`, telling the agent about the deps type with `deps_type`, and asking for typed output:
 
 ```python
+# agent.py
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
@@ -90,9 +101,10 @@ agent = Agent(
 
 ### Tools That Use Dependencies
 
-Now tools can read `ctx.deps` — fully typed. If you mistype `ctx.deps.customer_id`, a static type checker catches it before you ever run the agent.
+Now tools can read `ctx.deps` — fully typed. If you mistype `ctx.deps.customer_id`, a static type checker catches it before you ever run the agent. Add to `agent.py`:
 
 ```python
+# agent.py
 @agent.tool
 def account_balance(ctx: RunContext[Deps]) -> str:
     """Look up the current account balance for the customer."""
@@ -102,9 +114,10 @@ def account_balance(ctx: RunContext[Deps]) -> str:
 
 ### Dynamic Instructions From Dependencies
 
-Dependencies aren't just for tools — you can build part of the system prompt from them at run time with `@agent.instructions`:
+Dependencies aren't just for tools — you can build part of the system prompt from them at run time with `@agent.instructions`. Add to `agent.py`:
 
 ```python
+# agent.py
 @agent.instructions
 def add_customer_name(ctx: RunContext[Deps]) -> str:
     return f"You are speaking with {ctx.deps.db.name(ctx.deps.customer_id)}."
@@ -112,9 +125,10 @@ def add_customer_name(ctx: RunContext[Deps]) -> str:
 
 ## Run It
 
-Pass the dependencies into `run_sync` via `deps=`:
+Add to `agent.py`, passing the dependencies into `run_sync` via `deps=`:
 
 ```python
+# agent.py
 deps = Deps(customer_id=1, db=DatabaseConn())
 
 result = agent.run_sync(
