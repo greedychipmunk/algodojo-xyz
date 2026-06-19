@@ -1,0 +1,141 @@
+---
+title: "Validation, Retries, and Streaming in Pydantic AI"
+slug: "pydantic-ai-validation-and-streaming"
+description: "Make Pydantic AI agents production-grade. Use schema constraints and output validators with ModelRetry so the agent self-corrects bad output, raise retries from tools, and stream validated structured results as they arrive."
+tier: "free"
+category: "ai"
+tags: ["pydantic-ai", "ai-agents", "validation", "streaming", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 13
+publishedAt: "2026-06-18"
+updatedAt: "2026-06-18"
+author: "Algo Dojo"
+---
+
+## Reliability Is the Whole Point
+
+Pydantic AI's promise is that the LLM's output is *trustworthy* by the time your code sees it. This tutorial covers the three mechanisms that deliver on that promise — schema validation, output validators with retries, and streaming — building on the [agent](/tutorials/pydantic-ai-build-your-first-agent) and [tools/DI](/tutorials/pydantic-ai-tools-and-dependencies) tutorials.
+
+The key idea: when output is invalid, Pydantic AI doesn't hand you garbage — it **feeds the error back to the model and asks it to fix it**. You get a self-correcting loop almost for free.
+
+## Setup
+
+```bash
+pip install pydantic-ai
+export OPENAI_API_KEY="sk-..."
+```
+
+## Layer 1: Schema Constraints Validate for You
+
+Any constraint you put on the Pydantic `output_type` is enforced. If the model violates it, the validation error is sent back and the model retries — no code on your part.
+
+```python
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
+
+class Sentiment(BaseModel):
+    label: str = Field(description="One of: positive, negative, neutral.")
+    score: float = Field(ge=0.0, le=1.0, description="Confidence between 0 and 1.")
+
+agent = Agent("openai:gpt-4o", output_type=Sentiment)
+
+result = agent.run_sync("Classify: 'This product completely changed my workflow!'")
+print(result.output)
+#> label='positive' score=0.98
+```
+
+If the model ever returned `score=1.4`, the `le=1.0` constraint would reject it and prompt a correction automatically.
+
+## Layer 2: Output Validators + ModelRetry
+
+Schema constraints handle *shape*. For *business rules* — things the type system can't express — use an output validator. Raise `ModelRetry` to bounce invalid output back to the model with an instruction for how to fix it.
+
+```python
+from pydantic_ai import Agent, ModelRetry
+from pydantic import BaseModel
+
+class SqlQuery(BaseModel):
+    query: str
+
+agent = Agent(
+    "openai:gpt-4o",
+    output_type=SqlQuery,
+    system_prompt="Generate a read-only SQL query for the user's request.",
+)
+
+@agent.output_validator
+def no_destructive_sql(output: SqlQuery) -> SqlQuery:
+    lowered = output.query.lower()
+    if any(word in lowered for word in ("drop", "delete", "update", "insert")):
+        # This message is sent back to the model so it can correct itself.
+        raise ModelRetry("Only SELECT queries are allowed. Rewrite as read-only.")
+    return output
+
+result = agent.run_sync("Show me the 10 most recent orders.")
+print(result.output.query)
+#> SELECT * FROM orders ORDER BY created_at DESC LIMIT 10
+```
+
+If the model first proposes a `DELETE`, the validator rejects it, the model sees *why*, and it tries again — converging on a valid query. You set the policy; the framework runs the correction loop.
+
+## Layer 3: Retry From Inside a Tool
+
+The same `ModelRetry` works inside tools. If a tool gets bad arguments — say, an ID that doesn't exist — raise it so the model can pick a better value instead of the whole run failing.
+
+```python
+from pydantic_ai import Agent, ModelRetry
+
+agent = Agent("openai:gpt-4o", retries=2)   # cap self-correction attempts
+
+KNOWN_USERS = {"u_1001", "u_1002"}
+
+@agent.tool_plain
+def get_user_email(user_id: str) -> str:
+    """Look up a user's email by their ID (format: 'u_####')."""
+    if user_id not in KNOWN_USERS:
+        raise ModelRetry(f"No user '{user_id}'. Valid IDs look like 'u_1001'.")
+    return f"{user_id}@example.com"
+```
+
+`retries=2` bounds how many times the loop runs before giving up — your safety net against an agent that can't converge.
+
+## Layer 4: Streaming Validated Output
+
+For responsive UIs, stream the result as it's generated. With structured output you can validate **partial** results along the way using `run_stream`:
+
+```python
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+class Article(BaseModel):
+    title: str
+    summary: str
+
+agent = Agent("openai:gpt-4o", output_type=Article)
+
+async def main():
+    async with agent.run_stream("Write a short article about type-safe agents.") as result:
+        async for message in result.stream_response(debounce_by=0.01):
+            article = await result.validate_response_output(
+                message,
+                allow_partial=message.state == "incomplete",
+            )
+            print(article)   # fills in as tokens arrive: title first, then summary
+```
+
+You stream *and* keep the type guarantee — partial objects validate against the schema as they fill in, so a UI can render fields the moment they're ready.
+
+## Common Pitfalls
+
+| Mistake | Why it breaks | Fix |
+|---|---|---|
+| Raising `ValueError` to retry | The model never sees the reason | Raise `ModelRetry("how to fix")` |
+| No `retries` cap | A stuck agent loops and burns tokens | Set `Agent(..., retries=N)` |
+| Putting business rules in the schema | Type system can't express them | Use an `@agent.output_validator` |
+| Expecting full objects mid-stream | Streamed output is partial | Validate with `allow_partial=True` |
+
+## Wrapping Up
+
+You've now seen the full Pydantic AI arc: a [typed agent](/tutorials/pydantic-ai-build-your-first-agent), [tools with dependency injection](/tutorials/pydantic-ai-tools-and-dependencies), and the validation, retry, and streaming features that make it production-ready. The throughline is the framework's core idea — *the LLM's output is a validated type by the time it reaches your code.*
+
+Curious how Pydantic AI compares to the alternatives? See the [agent framework comparison guide](/tutorials/frameworks).
