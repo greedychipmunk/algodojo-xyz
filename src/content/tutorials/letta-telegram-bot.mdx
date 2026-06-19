@@ -47,10 +47,10 @@ letta-telegram/
 Install the two dependencies:
 
 ```bash
-pip install letta-client python-telegram-bot
+pip install letta-client python-telegram-bot python-dotenv
 ```
 
-`letta-client` is the official SDK you've been using throughout this series. `python-telegram-bot` is the most widely used Python wrapper for the Telegram Bot API — it handles long-polling, update routing, and the async handler model.
+`letta-client` is the official SDK you've been using throughout this series. `python-telegram-bot` is the most widely used Python wrapper for the Telegram Bot API — it handles long-polling, update routing, and the async handler model. `python-dotenv` loads the token from your `.env` file so you don't have to export it by hand every time.
 
 ## The Bridge: One Agent per Chat
 
@@ -60,9 +60,12 @@ The core idea is a mapping: each Telegram `chat_id` gets its own Letta `agent_id
 # bot.py
 import os
 
+from dotenv import load_dotenv
 from letta_client import Letta
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
+
+load_dotenv()  # read TELEGRAM_BOT_TOKEN from .env
 
 letta = Letta(base_url="http://localhost:8283")
 
@@ -130,7 +133,7 @@ The `next(...)` call with a default of `"(no reply)"` is a defensive fallback. L
 
 ## Run It
 
-Load the environment and start the bot:
+Make sure your Letta server from the first tutorial is still running on `:8283`, then start the bot:
 
 ```bash
 python bot.py
