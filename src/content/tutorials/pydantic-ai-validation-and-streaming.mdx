@@ -25,11 +25,20 @@ pip install pydantic-ai
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+pydantic-ai-validation/
+├── .env          # OPENAI_API_KEY=sk-...
+└── agent.py      # the validators, retries, and streaming below
+```
+
 ## Layer 1: Schema Constraints Validate for You
 
 Any constraint you put on the Pydantic `output_type` is enforced. If the model violates it, the validation error is sent back and the model retries — no code on your part.
 
 ```python
+# agent.py
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
@@ -50,7 +59,10 @@ If the model ever returned `score=1.4`, the `le=1.0` constraint would reject it 
 
 Schema constraints handle *shape*. For *business rules* — things the type system can't express — use an output validator. Raise `ModelRetry` to bounce invalid output back to the model with an instruction for how to fix it.
 
+Update `agent.py`:
+
 ```python
+# agent.py
 from pydantic_ai import Agent, ModelRetry
 from pydantic import BaseModel
 
@@ -82,7 +94,10 @@ If the model first proposes a `DELETE`, the validator rejects it, the model sees
 
 The same `ModelRetry` works inside tools. If a tool gets bad arguments — say, an ID that doesn't exist — raise it so the model can pick a better value instead of the whole run failing.
 
+Add to `agent.py`:
+
 ```python
+# agent.py
 from pydantic_ai import Agent, ModelRetry
 
 agent = Agent("openai:gpt-4o", retries=2)   # cap self-correction attempts
@@ -103,7 +118,10 @@ def get_user_email(user_id: str) -> str:
 
 For responsive UIs, stream the result as it's generated. With structured output you can validate **partial** results along the way using `run_stream`:
 
+Update `agent.py`:
+
 ```python
+# agent.py
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
