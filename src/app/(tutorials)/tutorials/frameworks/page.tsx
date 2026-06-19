@@ -68,7 +68,7 @@ const FRAMEWORKS: Framework[] = [
     control: "Control-first — you wire the graph yourself.",
     multiAgent: "Compose nodes and subgraphs however you like.",
     stateMemory: "First-class: checkpointers, threads, persistence.",
-    learningCurve: "Steeper — the lowest-level of the four.",
+    learningCurve: "Steeper — the lowest-level of the five.",
     watchOut: "More boilerplate than you need for simple agents.",
     chooseWhen: "You need fine-grained control, durability, or approval steps.",
   },

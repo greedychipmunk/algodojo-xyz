@@ -67,7 +67,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 load_dotenv()  # read TELEGRAM_BOT_TOKEN from .env
 
-letta = Letta(base_url="http://localhost:8283")
+client = Letta(base_url="http://localhost:8283")
 
 # Map each Telegram chat to its own persistent Letta agent.
 # For production, store this mapping in a database instead of memory.
@@ -76,7 +76,7 @@ chat_to_agent: dict[int, str] = {}
 
 def get_agent_id(chat_id: int) -> str:
     if chat_id not in chat_to_agent:
-        agent = letta.agents.create(
+        agent = client.agents.create(
             model="openai/gpt-4o-mini",
             embedding="openai/text-embedding-3-small",
             memory_blocks=[
@@ -102,7 +102,7 @@ With the routing in place, the message handler itself is thin. It calls `get_age
 # bot.py (continued)
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     agent_id = get_agent_id(update.effective_chat.id)
-    response = letta.agents.messages.create(
+    response = client.agents.messages.create(
         agent_id=agent_id,
         messages=[{"role": "user", "content": update.message.text}],
     )
@@ -161,6 +161,6 @@ If you want to confirm the memory update happened, check the Letta ADE at [http:
 
 You now have a working Telegram bot backed by per-user Letta agents. The delivery channel and the memory layer are both in place. A few natural next steps:
 
-- **Add tools** — the pattern from [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) applies directly. Register a function with `letta.tools.create_from_function` and pass its name in the `tools` list when creating the agent in `get_agent_id`. Your Telegram users will get an agent that can look things up, send notifications, or query an API on their behalf.
+- **Add tools** — the pattern from [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) applies directly. Register a function with `client.tools.create_from_function` and pass its name in the `tools` list when creating the agent in `get_agent_id`. Your Telegram users will get an agent that can look things up, send notifications, or query an API on their behalf.
 - **Persist the mapping** — replace `chat_to_agent` with a lightweight database. SQLite and Redis are both straightforward choices. The key insight is that you only need to store two columns: `chat_id` and `agent_id`. Everything else lives on the Letta server.
 - **Run entirely offline** — if you'd rather not send data to OpenAI, the next tutorial shows you how to swap the model and embeddings for local alternatives. [Run a Completely Local Letta Instance](/tutorials/letta-local-instance) walks through running the whole stack — Letta server, language model, and embeddings — on your own hardware with no API keys required.
