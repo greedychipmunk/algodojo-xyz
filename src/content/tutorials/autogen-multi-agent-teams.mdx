@@ -81,7 +81,7 @@ A team needs a clear stop signal, or it loops indefinitely. AutoGen ships severa
 Combine them with `|` (OR) and `&` (AND):
 
 ```python
-# team.py (continued)
+# team.py
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
 
 # Stop on approval OR after 10 messages — whichever comes first.
@@ -95,7 +95,7 @@ Always pair a "smart" condition (like `TextMentionTermination`) with a hard cap 
 `run_stream` is great for watching live, but in code you often want the result object. `run` returns a `TaskResult`:
 
 ```python
-# team.py (continued)
+# team.py
 result = await team.run(task="Write a tagline for a budgeting app.")
 
 print(result.stop_reason)          # why the team stopped
@@ -105,7 +105,7 @@ print(result.messages[-1].content) # the final message
 Teams are **stateful** — they remember the previous conversation. Before running a fresh, unrelated task, reset:
 
 ```python
-# team.py (continued)
+# team.py
 await team.reset()
 ```
 
@@ -116,7 +116,7 @@ Round-robin is predictable but rigid. When you have several specialists and the 
 Replace the team configuration in `team.py`:
 
 ```python
-# team.py (alternative team configuration)
+# team.py
 from autogen_agentchat.teams import SelectorGroupChat
 
 planner = AssistantAgent(
@@ -161,7 +161,7 @@ The `description` field is now doing real work — it's what the selector model 
 Add a `UserProxyAgent` to pause for human input — useful for approvals or supplying information only a person has. It's just another team member:
 
 ```python
-# team.py (with human in the loop)
+# team.py
 from autogen_agentchat.agents import UserProxyAgent
 
 user = UserProxyAgent("user", input_func=input)  # prompts via the console
