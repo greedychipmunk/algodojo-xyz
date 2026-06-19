@@ -83,6 +83,7 @@ The more interesting case is when the *agent* updates its own memory — and you
 Here's how to observe it. Send the agent a new fact, then read the block back and see what changed:
 
 ```python
+# memory_demo.py (continued)
 # Tell the agent something new and let IT update its own memory.
 response = client.agents.messages.create(
     agent_id=agent_id,
@@ -114,6 +115,7 @@ Archival memory is a vector-indexed store on the Letta server. You insert text p
 Inserting and listing passages from Python looks like this:
 
 ```python
+# memory_demo.py (continued)
 # Archival memory is unbounded, searchable long-term storage.
 client.agents.passages.create(
     agent_id=agent_id,
@@ -126,7 +128,7 @@ for passage in passages:
     print(passage.text)
 ```
 
-`passages.create` embeds the text and stores it. `passages.list` returns everything currently in archival memory for this agent — useful for debugging and auditing, though in practice agents query it through the `archival_memory_search` tool rather than listing everything.
+`passages.create` embeds the text and stores it. `passages.list` returns everything currently in archival memory for this agent — useful for debugging and auditing, though in practice agents query it through the `archival_memory_search` tool rather than listing everything. For a large store the listing is paginated, so iterate the results rather than assuming a single call returns every passage.
 
 The agent doesn't retrieve archival passages on every turn. It only reaches for them when it decides the question at hand warrants a search — the same way a human might decide to look something up rather than relying on what they already have in working memory. If you ask the agent "what's Brad's favorite programming language?", it will recognize the query, call `archival_memory_search` with a relevant query string, get the passage about Rust back, and use it to answer. None of this requires special configuration from you; it's the default behavior of every Letta agent once archival memory contains relevant content.
 
