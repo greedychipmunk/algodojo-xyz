@@ -1,0 +1,163 @@
+---
+title: "Talk to Letta Agents via Telegram"
+slug: "letta-telegram-bot"
+description: "Put a remembering Letta agent in your pocket. Build a Telegram bot that maps each chat to its own persistent agent, so every user gets an assistant that remembers them across conversations."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "telegram", "chatbot", "python", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 14
+publishedAt: "2026-06-18"
+updatedAt: "2026-06-18"
+author: "Algo Dojo"
+---
+
+## Why Telegram + Letta?
+
+Every tutorial in this series has run your agents from a Python script. That's fine for experimenting, but it's not how real users interact with software. They open an app on their phone. They send a message, close the app, come back tomorrow, and expect the conversation to continue where it left off. Scripts don't give you that — they give you a session that ends when the terminal closes.
+
+Telegram makes this easy on the delivery side. The Bot API is free, the webhook model is simple, and the `python-telegram-bot` library handles all the plumbing. But Telegram itself has no memory. Every update it sends you is stateless: a user ID, a chat ID, and a message. If you want the agent to remember who this person is across messages and sessions, you have to bring that yourself.
+
+That's exactly what Letta provides. Each Letta agent maintains its own persistent memory blocks — the `human` block that fills in with facts about the user, the `persona` block that defines the agent's character — and those blocks survive across processes, restarts, and days. By giving each Telegram chat its own dedicated Letta agent, you get something that no stateless chatbot can offer: a per-user assistant that genuinely knows the person it's talking to.
+
+In [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) you saw how memory blocks persist across Python processes. In [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) you saw how agents can reach out to APIs. This tutorial wires a Letta agent to a real delivery channel, so the memory and tools you've built work for actual users in an interface they already have on their phones.
+
+## Get a Bot Token
+
+Open Telegram and search for `@BotFather`. Send it `/newbot`, follow the prompts to pick a name and username, and it will hand you a token that looks like `123456789:ABCDefgh...`. That token is all you need to send and receive messages as your bot.
+
+Create a `.env` file in your project folder and paste the token in:
+
+```text
+TELEGRAM_BOT_TOKEN=123456789:ABCDefgh...
+```
+
+This tutorial assumes a Letta server is already running at `localhost:8283`. If you haven't started one yet, the Docker command from [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) will have it up in under a minute.
+
+## Project Setup
+
+The entire bridge fits in two files. `.env` holds your bot token; `bot.py` contains all the logic.
+
+```text
+letta-telegram/
+├── .env          # TELEGRAM_BOT_TOKEN=...  (Letta server runs separately on :8283)
+└── bot.py        # the Telegram <-> Letta bridge
+```
+
+Install the two dependencies:
+
+```bash
+pip install letta-client python-telegram-bot
+```
+
+`letta-client` is the official SDK you've been using throughout this series. `python-telegram-bot` is the most widely used Python wrapper for the Telegram Bot API — it handles long-polling, update routing, and the async handler model.
+
+## The Bridge: One Agent per Chat
+
+The core idea is a mapping: each Telegram `chat_id` gets its own Letta `agent_id`. When a message arrives from a chat you haven't seen before, you create a fresh agent for it. When the same chat messages again, you look up the existing agent and send the message there. The agent's memory does the rest.
+
+```python
+# bot.py
+import os
+
+from letta_client import Letta
+from telegram import Update
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
+
+letta = Letta(base_url="http://localhost:8283")
+
+# Map each Telegram chat to its own persistent Letta agent.
+# For production, store this mapping in a database instead of memory.
+chat_to_agent: dict[int, str] = {}
+
+
+def get_agent_id(chat_id: int) -> str:
+    if chat_id not in chat_to_agent:
+        agent = letta.agents.create(
+            model="openai/gpt-4o-mini",
+            embedding="openai/text-embedding-3-small",
+            memory_blocks=[
+                {"label": "human", "value": "I don't know anything about this user yet."},
+                {"label": "persona", "value": "You are a helpful assistant on Telegram. Be concise."},
+            ],
+        )
+        chat_to_agent[chat_id] = agent.id
+    return chat_to_agent[chat_id]
+```
+
+The `chat_to_agent` dict is an in-memory store — straightforward for a demo, but it has an obvious limitation: if you restart the bot process, every chat loses its association to its agent. The agents themselves still exist on the Letta server and retain all their memories; you just can't find them again. For production you'd replace this dict with a database table that maps `chat_id` to `agent_id` and persists across restarts. A simple SQLite table or a Redis hash would both work fine.
+
+The `get_agent_id` function handles the create-on-first-message pattern. The first time a particular `chat_id` messages you, there's no entry in the dict, so you create a new agent with fresh memory blocks and store its ID. Every subsequent message from that chat finds the existing ID immediately. This is the entire routing layer — one function, eleven lines.
+
+Notice that the agent's `persona` block says "Be concise." Memory blocks double as a character instruction and a persistent fact store. Whatever the agent writes back into that block over time enriches the persona further, but the initial value sets the tone from the very first message.
+
+## Wiring Up the Handlers
+
+With the routing in place, the message handler itself is thin. It calls `get_agent_id`, forwards the user's text to the agent, picks out the `assistant_message` from the response, and fires it back to Telegram:
+
+```python
+# bot.py (continued)
+async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    agent_id = get_agent_id(update.effective_chat.id)
+    response = letta.agents.messages.create(
+        agent_id=agent_id,
+        messages=[{"role": "user", "content": update.message.text}],
+    )
+    reply = next(
+        (m.content for m in response.messages if m.message_type == "assistant_message"),
+        "(no reply)",
+    )
+    await update.message.reply_text(reply)
+
+
+def main() -> None:
+    app = Application.builder().token(os.environ["TELEGRAM_BOT_TOKEN"]).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+`update.effective_chat.id` gives you the unique chat identifier for both private messages and group chats. In a private conversation with a user it's equivalent to their user ID. In a group it's the group's ID — which means every member of that group shares one agent, one memory. For most bots you'll want to key on `update.effective_user.id` instead so each individual gets their own agent regardless of which group they're writing from. The change is one character; the behaviour is quite different.
+
+The `next(...)` call with a default of `"(no reply)"` is a defensive fallback. Letta's response will almost always include an `assistant_message`, but if the agent only fires internal tool calls on a given turn — updating its memory, for example — the visible reply count can be zero. The fallback prevents the bot from silently dropping a message in that edge case.
+
+`filters.TEXT & ~filters.COMMAND` tells `python-telegram-bot` to route all plain text messages to `on_message` but ignore anything that starts with a slash. That means `/start`, `/help`, and any other commands you add later won't trigger the agent unintentionally.
+
+`app.run_polling()` starts a long-polling loop that continuously asks Telegram for new updates. It's the simplest way to receive messages during development. When you deploy to production, you'll likely switch to `run_webhook()` instead, which requires a public HTTPS endpoint but doesn't hold an open connection to Telegram's servers.
+
+## Run It
+
+Load the environment and start the bot:
+
+```bash
+python bot.py
+```
+
+Open Telegram, find your bot by the username you gave @BotFather, and send it a message:
+
+```
+You: Hi, my name is Jordan.
+Bot: Hi Jordan! Great to meet you. How can I help you today?
+```
+
+Send a few more messages, then close the chat and come back a few minutes later. Ask the agent something that requires memory:
+
+```
+You: What's my name?
+Bot: Your name is Jordan!
+```
+
+The agent remembered — not because you re-sent the name, but because it wrote it into the `human` memory block during the first exchange. That block is stored on the Letta server and loaded fresh on every call. This is the persistence payoff the whole series has been building toward: a real user, on a real device, getting a real assistant that knows them.
+
+If you want to confirm the memory update happened, check the Letta ADE at [http://localhost:8283](http://localhost:8283). Find the agent for your chat and inspect the `human` block — you'll see Jordan's name sitting there, written by the agent itself.
+
+## Where to Go Next
+
+You now have a working Telegram bot backed by per-user Letta agents. The delivery channel and the memory layer are both in place. A few natural next steps:
+
+- **Add tools** — the pattern from [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools) applies directly. Register a function with `letta.tools.create_from_function` and pass its name in the `tools` list when creating the agent in `get_agent_id`. Your Telegram users will get an agent that can look things up, send notifications, or query an API on their behalf.
+- **Persist the mapping** — replace `chat_to_agent` with a lightweight database. SQLite and Redis are both straightforward choices. The key insight is that you only need to store two columns: `chat_id` and `agent_id`. Everything else lives on the Letta server.
+- **Run entirely offline** — if you'd rather not send data to OpenAI, the next tutorial shows you how to swap the model and embeddings for local alternatives. [Run a Completely Local Letta Instance](/tutorials/letta-local-instance) walks through running the whole stack — Letta server, language model, and embeddings — on your own hardware with no API keys required.
