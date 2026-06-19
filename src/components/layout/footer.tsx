@@ -10,6 +10,7 @@ const FOOTER_LINKS = {
   ],
   resources: [
     { label: "Tutorials", href: "/tutorials" },
+    { label: "Compare Frameworks", href: "/tutorials/frameworks" },
     { label: "Blog", href: "/blog" },
     { label: "About", href: "/about" },
     { label: "Contact", href: "/contact" },
