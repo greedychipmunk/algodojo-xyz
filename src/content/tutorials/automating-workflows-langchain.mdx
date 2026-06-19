@@ -25,11 +25,20 @@ pip install langchain langchain-openai pydantic
 export OPENAI_API_KEY="sk-..."
 ```
 
+## Project Setup
+
+```text
+invoice-extraction/
+├── .env          # OPENAI_API_KEY=sk-...
+└── extract.py    # the structured model, extraction, and workflow below
+```
+
 ## Step 1: Define the Structured Output
 
 The reliability win is forcing extraction into a typed schema instead of free-form text. Define the shape with Pydantic.
 
 ```python
+# extract.py
 from pydantic import BaseModel, Field
 
 class Invoice(BaseModel):
@@ -44,6 +53,7 @@ class Invoice(BaseModel):
 `with_structured_output` makes the model return an `Invoice` object directly — no JSON parsing, no regex.
 
 ```python
+# extract.py
 from langchain.chat_models import init_chat_model
 
 llm = init_chat_model("openai:gpt-4o")
@@ -56,6 +66,7 @@ def extract_invoice(text: str) -> Invoice:
 Try it:
 
 ```python
+# extract.py
 sample = """
 INVOICE #2025-0142
 From: Acme Cloud Services
@@ -74,6 +85,7 @@ print(inv.vendor, inv.total, inv.due_date)
 Before wiring this into anything, find out how often it's *right*. Build a small labeled set — a few invoices paired with their known-correct fields — and score field by field. For money, the `total` and `vendor` fields are what matter most.
 
 ```python
+# extract.py
 EVAL = [
     {"text": sample, "vendor": "Acme Cloud Services", "total": 5118.12, "due_date": "2025-04-15"},
     {"text": "Bill from Globex Inc — Invoice 88. Amount due $1,200.00 by 2025-05-01.",
@@ -111,6 +123,7 @@ Now you know exactly where it's weak (date formats, here) — so you can tighten
 With extraction trusted, wrap it and the downstream actions as tools and let `create_agent` run the workflow end to end.
 
 ```python
+# extract.py
 from langchain.agents import create_agent
 from langchain.tools import tool
 
@@ -150,6 +163,7 @@ print(result["messages"][-1].content)
 A few additions turn this into something you can run unattended:
 
 ```python
+# extract.py
 # 1. Human-in-the-loop gate for high-value invoices
 @tool
 def request_approval(summary: str) -> str:
