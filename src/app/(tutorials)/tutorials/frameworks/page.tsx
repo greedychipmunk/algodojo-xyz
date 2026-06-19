@@ -8,7 +8,7 @@ import type { Tutorial } from "@/lib/types";
 export const metadata = generatePageMetadata({
   title: "Choosing an AI Agent Framework",
   description:
-    "CrewAI vs. AutoGen vs. LangGraph — how the three leading agent frameworks differ, when to reach for each, and the hands-on tutorials to get started with all of them.",
+    "CrewAI vs. AutoGen vs. LangGraph vs. Pydantic AI — how four leading agent frameworks differ, when to reach for each, and the hands-on tutorials to get started with all of them.",
   path: "/tutorials/frameworks",
   ogEyebrow: "Guide",
 });
@@ -68,9 +68,23 @@ const FRAMEWORKS: Framework[] = [
     control: "Control-first — you wire the graph yourself.",
     multiAgent: "Compose nodes and subgraphs however you like.",
     stateMemory: "First-class: checkpointers, threads, persistence.",
-    learningCurve: "Steeper — the lowest-level of the three.",
+    learningCurve: "Steeper — the lowest-level of the four.",
     watchOut: "More boilerplate than you need for simple agents.",
     chooseWhen: "You need fine-grained control, durability, or approval steps.",
+  },
+  {
+    key: "pydantic-ai",
+    name: "Pydantic AI",
+    slugPrefix: "pydantic-ai-",
+    tagline: "Type-safe agents with validated, structured output.",
+    mentalModel: "Agent + typed output (Pydantic)",
+    bestFor: "Agents whose output feeds real code — extraction, structured decisions.",
+    control: "Convenience with strong typing — a FastAPI-like feel.",
+    multiAgent: "Single-agent focus; compose agents in plain Python.",
+    stateMemory: "Message history; type-safe dependency injection for context.",
+    learningCurve: "Gentle if you already know Pydantic.",
+    watchOut: "Less built-in multi-agent orchestration than CrewAI or AutoGen.",
+    chooseWhen: "Your agent's output must be a validated, typed object.",
   },
 ];
 
@@ -134,9 +148,10 @@ export default async function FrameworksPage() {
             Choosing an AI Agent Framework
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-text-secondary">
-            CrewAI, AutoGen, and LangGraph all build agentic systems — but they
-            sit at different levels of abstraction. Here&apos;s how they compare,
-            when to reach for each, and where to start with hands-on tutorials.
+            CrewAI, AutoGen, LangGraph, and Pydantic AI all build agentic
+            systems — but they sit at different levels of abstraction.
+            Here&apos;s how they compare, when to reach for each, and where to
+            start with hands-on tutorials.
           </p>
         </Container>
       </section>
@@ -148,7 +163,7 @@ export default async function FrameworksPage() {
             At a glance
           </h2>
           <div className="mt-8 overflow-x-auto rounded-2xl border border-border bg-bg-card shadow-card">
-            <table className="w-full min-w-[720px] border-collapse text-left">
+            <table className="w-full min-w-[920px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-border">
                   <th className="w-44 p-5" />
@@ -209,7 +224,7 @@ export default async function FrameworksPage() {
             to production patterns.
           </p>
 
-          <div className="mt-8 grid gap-6 lg:grid-cols-3">
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
             {FRAMEWORKS.map((f) => {
               const tutorials = tutorialsFor(f.slugPrefix);
               return (
@@ -303,7 +318,7 @@ export default async function FrameworksPage() {
           <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
             Still not sure? Start here
           </h2>
-          <div className="mt-8 grid gap-6 md:grid-cols-3">
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {FRAMEWORKS.map((f) => (
               <div
                 key={f.key}

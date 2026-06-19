@@ -32,10 +32,11 @@ export default async function TutorialsPage() {
               New · Guide
             </span>
             <span className="mt-1 block text-lg font-semibold text-text-primary">
-              CrewAI vs. AutoGen vs. LangGraph — which should you use?
+              Which AI agent framework should you use?
             </span>
             <span className="mt-1 block text-sm text-text-secondary">
-              Compare the three agent frameworks and find your starting point.
+              Compare CrewAI, AutoGen, LangGraph, and Pydantic AI — and find
+              your starting point.
             </span>
           </span>
           <span className="shrink-0 font-semibold text-accent">
