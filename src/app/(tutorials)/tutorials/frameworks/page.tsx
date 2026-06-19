@@ -8,7 +8,7 @@ import type { Tutorial } from "@/lib/types";
 export const metadata = generatePageMetadata({
   title: "Choosing an AI Agent Framework",
   description:
-    "CrewAI vs. AutoGen vs. LangGraph vs. Pydantic AI — how four leading agent frameworks differ, when to reach for each, and the hands-on tutorials to get started with all of them.",
+    "CrewAI vs. AutoGen vs. LangGraph vs. Pydantic AI vs. Letta — how five leading agent frameworks differ, when to reach for each, and the hands-on tutorials to get started with all of them.",
   path: "/tutorials/frameworks",
   ogEyebrow: "Guide",
 });
@@ -68,7 +68,7 @@ const FRAMEWORKS: Framework[] = [
     control: "Control-first — you wire the graph yourself.",
     multiAgent: "Compose nodes and subgraphs however you like.",
     stateMemory: "First-class: checkpointers, threads, persistence.",
-    learningCurve: "Steeper — the lowest-level of the four.",
+    learningCurve: "Steeper — the lowest-level of the five.",
     watchOut: "More boilerplate than you need for simple agents.",
     chooseWhen: "You need fine-grained control, durability, or approval steps.",
   },
@@ -85,6 +85,20 @@ const FRAMEWORKS: Framework[] = [
     learningCurve: "Gentle if you already know Pydantic.",
     watchOut: "Less built-in multi-agent orchestration than CrewAI or AutoGen.",
     chooseWhen: "Your agent's output must be a validated, typed object.",
+  },
+  {
+    key: "letta",
+    name: "Letta",
+    slugPrefix: "letta-",
+    tagline: "Stateful agents with long-term memory, run as a server.",
+    mentalModel: "Stateful agents + memory blocks",
+    bestFor: "Agents that must remember users across sessions and run as a service.",
+    control: "Convenience-first SDK over a managed server.",
+    multiAgent: "Shared memory blocks across agents.",
+    stateMemory: "First-class: server-persisted core + archival memory.",
+    learningCurve: "Gentle SDK — though you do run a Letta server.",
+    watchOut: "It's a server + SDK, not an in-process library — you run a Letta server.",
+    chooseWhen: "Your agent must remember users across sessions.",
   },
 ];
 
@@ -148,8 +162,8 @@ export default async function FrameworksPage() {
             Choosing an AI Agent Framework
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-text-secondary">
-            CrewAI, AutoGen, LangGraph, and Pydantic AI all build agentic
-            systems — but they sit at different levels of abstraction.
+            CrewAI, AutoGen, LangGraph, Pydantic AI, and Letta all build
+            agentic systems — but they sit at different levels of abstraction.
             Here&apos;s how they compare, when to reach for each, and where to
             start with hands-on tutorials.
           </p>
@@ -178,7 +192,7 @@ export default async function FrameworksPage() {
                 d="M4 12h16M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"
               />
             </svg>
-            Swipe to compare all four frameworks
+            Swipe to compare all five frameworks
           </p>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-bg-card shadow-card lg:mt-8">
             <table className="w-full min-w-[920px] border-collapse text-left">
@@ -238,11 +252,11 @@ export default async function FrameworksPage() {
             Start building
           </h2>
           <p className="mt-3 max-w-2xl text-base leading-7 text-text-secondary">
-            Each framework has a three-part learning path, from your first agent
+            Each framework has a hands-on learning path, from your first agent
             to production patterns.
           </p>
 
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {FRAMEWORKS.map((f) => {
               const tutorials = tutorialsFor(f.slugPrefix);
               return (
@@ -336,7 +350,7 @@ export default async function FrameworksPage() {
           <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
             Still not sure? Start here
           </h2>
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             {FRAMEWORKS.map((f) => (
               <div
                 key={f.key}

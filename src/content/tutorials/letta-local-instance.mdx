@@ -1,0 +1,158 @@
+---
+title: "Run a Completely Local Letta Instance"
+slug: "letta-local-instance"
+description: "No API keys, no cloud. Run Letta entirely offline with Ollama serving both the LLM and the embedding model, wired into a self-hosted Letta server in Docker."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "local-llm", "ollama", "self-hosted", "advanced"]
+difficulty: "advanced"
+estimatedReadTime: 15
+publishedAt: "2026-06-19"
+updatedAt: "2026-06-19"
+author: "Algo Dojo"
+---
+
+## Why Run Letta Locally?
+
+Every tutorial in this series has assumed a key sitting in your environment: `OPENAI_API_KEY`, passed into the Docker container and used for every model call and every embedding. That key is convenient, but it comes with trade-offs that matter in some contexts. Every message you send crosses the wire to a third-party server. Costs accumulate, especially once agents start looping through internal tool calls to update memory. And if your network goes down — or OpenAI's does — so does your agent.
+
+Running the whole stack locally eliminates all three of those concerns at once. No data leaves your machine. There's no usage bill. You can develop and test agents on a plane with the WiFi turned off.
+
+The setup you're about to build is: **Ollama** serving a local chat model and a local embedding model, and a **self-hosted Letta server** in Docker configured to call Ollama for both. If you've followed [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) and [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools), the Python SDK usage will look completely familiar — because it is. The only thing that changes is what's on the other end of the connection.
+
+There are honest trade-offs, and we'll cover them. Small local models are weaker at the structured tool calling that Letta relies on, and inference is slower on CPU than a cloud API. But for privacy-sensitive use cases, air-gapped environments, or plain cost-consciousness, this configuration is entirely practical.
+
+## Install and Run Ollama
+
+[Ollama](https://ollama.com) packages open-weight language models into a simple local server that exposes an OpenAI-compatible REST API. Install it from the Ollama website for your platform — it ships as a native app on macOS and Windows, and as a curl-and-run install script on Linux.
+
+Once installed, pull a chat model and an embedding model. Letta needs both: the chat model drives conversation and tool use; the embedding model powers the archival memory tier you explored in the rest of the series.
+
+```bash
+# Install Ollama from https://ollama.com, then pull a chat model and an embedding model.
+ollama pull llama3.1:8b
+ollama pull mxbai-embed-large
+```
+
+`llama3.1:8b` is a solid choice for local agent work. It fits comfortably in 8 GB of RAM when quantized, and its instruction-following quality is good enough for basic tool calling. `mxbai-embed-large` is a high-quality open embedding model that Ollama serves natively.
+
+After the pulls complete, Ollama is already running and serving both models at `http://localhost:11434`. You can verify:
+
+```bash
+ollama list
+```
+
+You should see both `llama3.1:8b` and `mxbai-embed-large` in the output. Keep Ollama running in the background — the Letta server will call it next.
+
+## Start Letta Wired to Ollama
+
+The Letta Docker image accepts an `OLLAMA_BASE_URL` environment variable that tells it where to find Ollama. Set that variable and Letta will route all model and embedding calls there instead of to OpenAI.
+
+Here's where the one genuine gotcha lives: Letta runs inside a Docker container, and Ollama runs on your host machine. Getting the container to talk to the host depends on your operating system.
+
+**macOS and Windows** — Docker Desktop provides a special hostname `host.docker.internal` that resolves from inside a container to the host machine's IP address. Use that in the URL:
+
+```bash
+# macOS / Windows: reach the host's Ollama via host.docker.internal
+docker run \
+  -v ~/.letta/.persist/pgdata:/var/lib/postgresql/data \
+  -p 8283:8283 \
+  -e OLLAMA_BASE_URL="http://host.docker.internal:11434/v1" \
+  letta/letta:latest
+```
+
+**Linux** — `host.docker.internal` is not available by default on Linux. Instead, pass `--network host` to share the host network stack with the container. Once the container is on the host network, `localhost` resolves correctly:
+
+```bash
+# Linux: share the host network and reach Ollama on localhost
+docker run \
+  -v ~/.letta/.persist/pgdata:/var/lib/postgresql/data \
+  --network host \
+  -e OLLAMA_BASE_URL="http://localhost:11434/v1" \
+  letta/letta:latest
+```
+
+Note that `--network host` also changes the port binding behavior on Linux: the `-p 8283:8283` flag becomes unnecessary because the container already shares the host's ports directly.
+
+Once the container is up, the Letta ADE is available at [http://localhost:8283](http://localhost:8283) just as before. You won't see any Ollama-specific change there — from the ADE's perspective, it just has model and embedding providers available.
+
+## Project Setup
+
+The local agent lives in a single script. No extra dependencies beyond `letta-client` — the SDK hasn't changed at all.
+
+```text
+letta-local/
+└── local_agent.py   # an agent backed entirely by Ollama
+```
+
+Install the SDK if you haven't already:
+
+```bash
+pip install letta-client
+```
+
+## Create a Fully Local Agent
+
+Creating an agent against the local backend looks almost identical to what you've done throughout this series. The two meaningful differences are the model handles and the `context_window_limit`.
+
+```python
+# local_agent.py
+from letta_client import Letta
+
+client = Letta(base_url="http://localhost:8283")
+
+agent = client.agents.create(
+    # Ollama model handles are prefixed with "ollama/".
+    model="ollama/llama3.1:8b",
+    embedding="ollama/mxbai-embed-large",  # an embedding model is required for self-hosted
+    context_window_limit=16000,
+    memory_blocks=[
+        {"label": "human", "value": "The human prefers fully local, private tools."},
+        {"label": "persona", "value": "You are a privacy-first local assistant."},
+    ],
+)
+
+response = client.agents.messages.create(
+    agent_id=agent.id,
+    messages=[{"role": "user", "content": "Confirm you're running locally and say hello."}],
+)
+for message in response.messages:
+    if message.message_type == "assistant_message":
+        print("Agent:", message.content)
+```
+
+The `ollama/` prefix on both the model and embedding handles is how Letta's server knows to route those calls to Ollama rather than to any other provider. Get the prefix wrong and the server will return an error about an unrecognized model — `ollama/` is required, not optional.
+
+`context_window_limit=16000` explicitly caps the context window at 16 K tokens. This matters because local models don't have the same generous defaults as frontier models, and Letta uses context space for both the conversation history and the in-context memory blocks. Setting this to a value the model can actually handle prevents the server from stuffing more tokens in than the model can process. Check the model card for the model you pull — `llama3.1:8b` supports up to 128 K in principle, but at 16 K you stay well within the range where quality and speed are both reasonable on consumer hardware.
+
+To confirm Ollama's models are registered with the Letta server, you can list them from the SDK:
+
+```python
+# local_agent.py (continued)
+for model in client.models.list():
+    print(model.handle if hasattr(model, "handle") else model)
+```
+
+You should see `ollama/llama3.1:8b` and `ollama/mxbai-embed-large` in the output alongside any other providers the server has detected.
+
+## Caveats with Small Local Models
+
+The setup above works. But it's worth being direct about where small local models fall short compared to the frontier models used in the rest of this series — especially for Letta specifically.
+
+**Tool calling is weaker.** Letta's memory system works by giving the agent a set of internal tools — `core_memory_replace`, `core_memory_append`, `archival_memory_search` — and letting it decide when to call them. This structured function-calling loop is where small models struggle most. An 8B model will sometimes fail to call the right tool, call it with malformed arguments, or skip it entirely and reply without updating memory. You'll see this as inconsistent memory recall across conversations. Instruction-tuned models (those with `-Instruct` or similar in their name) handle this better than base models; `llama3.1:8b` is instruction-tuned and performs reasonably, but it's still a step behind GPT-4o-mini.
+
+**Context window budget matters.** Letta packs memory blocks, tool definitions, and conversation history into the context on every call. With a 16 K limit, a long conversation or a large set of registered tools can crowd out space for the actual reply. If you notice the model starting to truncate or lose track of earlier conversation, lower `context_window_limit` so Letta summarizes older history sooner, or reduce the number of registered tools.
+
+**Inference is slower on CPU.** On a machine without a capable GPU, `llama3.1:8b` may take several seconds per response — and Letta typically makes two or three model calls per user message (one for reasoning, one or more for tool calls, one for the final reply). The first response often feels slow; subsequent ones warm up as the model stays loaded in Ollama. If speed matters, consider a smaller model like `llama3.2:3b` at the cost of further quality reduction, or use a machine with a GPU.
+
+**Choose instruct-tuned models.** Base models — those without a fine-tune for instruction following — produce unusable results in an agent context. Always pull a model that has been fine-tuned for chat or instruction following. Ollama's model naming usually makes this clear: `llama3.1:8b` is the instruct variant by default; base weights are typically suffixed with `:8b-text` or similar.
+
+None of these caveats mean local Letta is impractical — they mean you should calibrate your expectations. For summarization, note-taking, private research assistants, and other tasks that don't rely heavily on precise multi-step tool orchestration, a local setup works very well. For complex agentic workflows that chain many tool calls, a frontier model is still the more reliable choice.
+
+## Where to Go Next
+
+You've now seen the full Letta stack from its simplest form to a completely offline, privacy-first deployment. Everything from earlier in the series — memory blocks, custom tools, Telegram delivery — works identically against a local backend. The only change is the model handles and the Docker networking.
+
+If you're jumping in here and want to understand how the memory system works before going further, start at [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) and follow the series in order. By the time you reach this tutorial, the concepts will land more solidly.
+
+Once you have the local instance running, the next layer to explore is combining it with the tools from [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools). A local agent equipped with Python tools — a file reader, a search function, a database query — is a genuinely useful offline assistant that never phones home.
