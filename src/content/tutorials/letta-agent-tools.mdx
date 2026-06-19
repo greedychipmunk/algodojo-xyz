@@ -115,7 +115,20 @@ agent = client.agents.create(
 )
 ```
 
-Inside the tool function you'd read this as `os.environ["SOME_API_KEY"]`. The value is injected into the sandbox environment before execution and is never logged or included in any LLM context.
+Inside the tool function you'd read this with `os.environ` — and just like `requests`, the `import` has to live inside the function body because the tool runs sandboxed:
+
+```python
+# tools.py (continued)
+def call_secure_api(query: str) -> str:
+    """Look something up in an API that needs a key."""
+    import os
+    import requests
+
+    key = os.environ["SOME_API_KEY"]
+    return requests.get("https://api.example.com", params={"q": query, "key": key}, timeout=10).text
+```
+
+The value is injected into the sandbox environment before execution and is never logged or included in any LLM context.
 
 ## Calling It
 
