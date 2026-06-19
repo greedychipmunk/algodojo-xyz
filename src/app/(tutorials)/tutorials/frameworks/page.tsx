@@ -192,7 +192,7 @@ export default async function FrameworksPage() {
                 d="M4 12h16M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"
               />
             </svg>
-            Swipe to compare all four frameworks
+            Swipe to compare all five frameworks
           </p>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-bg-card shadow-card lg:mt-8">
             <table className="w-full min-w-[920px] border-collapse text-left">
@@ -350,7 +350,7 @@ export default async function FrameworksPage() {
           <h2 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
             Still not sure? Start here
           </h2>
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             {FRAMEWORKS.map((f) => (
               <div
                 key={f.key}
