@@ -18,11 +18,23 @@ The agent from the [first tutorial](/tutorials/autogen-build-your-first-agent) c
 
 This tutorial builds directly on the first one — make sure you have `autogen-agentchat` and `autogen-ext[openai]` installed.
 
+## Project Setup
+
+The examples below share one scaffold — an agent plus a model client — and vary the tool you register. Keep them in a single file and swap the tool definition as you go:
+
+```text
+autogen-tools/
+├── .env             # OPENAI_API_KEY=sk-...
+└── tools_demo.py    # the shared agent scaffold; swap the tool per example
+```
+
 ## Tools Are Just Python Functions
 
 In AutoGen, the simplest tool is an ordinary function with **type hints and a docstring**. The type hints become the tool's argument schema; the docstring tells the model what the tool does and when to use it. Both matter — a vague docstring means the agent won't know when to reach for the tool.
 
 ```python
+# tools_demo.py
+
 async def get_weather(city: str) -> str:
     """Get the current weather for a given city."""
     # In a real tool you'd call a weather API here.
@@ -32,6 +44,8 @@ async def get_weather(city: str) -> str:
 Pass it to the agent through the `tools` argument:
 
 ```python
+# tools_demo.py
+
 from autogen_agentchat.agents import AssistantAgent
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
@@ -58,6 +72,8 @@ Notice `reflect_on_tool_use=True`. This controls what the agent's *final* messag
 Run it and watch the agent call the tool, then summarize:
 
 ```python
+# tools_demo.py
+
 import asyncio
 from autogen_agentchat.ui import Console
 
@@ -75,6 +91,8 @@ In the streamed output you'll see a `ToolCallRequestEvent` (the agent deciding t
 Tools shine when they do something the model genuinely can't. Here's a calculator the agent can lean on for exact arithmetic, plus a lookup tool:
 
 ```python
+# tools_demo.py
+
 def calculate(expression: str) -> str:
     """Evaluate a basic arithmetic expression, e.g. '128 * 47 + 9'.
     Supports + - * / and parentheses only."""
@@ -109,6 +127,8 @@ Now a prompt like *"What's the status of order A1001, and what's 19% tax on $240
 Relying on the function name and docstring is convenient, but sometimes you want an explicit, separate description — especially when the function name isn't self-explanatory or you're exposing a third-party function. Wrap it with `FunctionTool`:
 
 ```python
+# tools_demo.py
+
 from autogen_core.tools import FunctionTool
 
 def query_kb(q: str) -> str:
