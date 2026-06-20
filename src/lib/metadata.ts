@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SITE_METADATA } from "./constants";
+import { AUTHOR, SITE_METADATA } from "./constants";
 
 interface MetadataOptions {
   title: string;
@@ -11,6 +11,15 @@ interface MetadataOptions {
   type?: "website" | "article";
   publishedTime?: string;
   modifiedTime?: string;
+  /** When set, adds an authorship signal to the page metadata. */
+  author?: { name: string; url?: string };
+}
+
+/** Resolve a root-relative path to an absolute URL for structured data. */
+function absoluteUrl(pathOrUrl: string): string {
+  return pathOrUrl.startsWith("http")
+    ? pathOrUrl
+    : `${SITE_METADATA.siteUrl}${pathOrUrl}`;
 }
 
 const OG_TITLE_MAX = 100;
@@ -42,6 +51,7 @@ export function generatePageMetadata({
   type = "website",
   publishedTime,
   modifiedTime,
+  author,
 }: MetadataOptions): Metadata {
   const url = `${SITE_METADATA.siteUrl}${path}`;
   const fullTitle = path ? `${title} | Algo Dojo` : SITE_METADATA.title;
@@ -50,6 +60,9 @@ export function generatePageMetadata({
   return {
     title: fullTitle,
     description,
+    ...(author && {
+      authors: [{ name: author.name, ...(author.url && { url: author.url }) }],
+    }),
     alternates: {
       canonical: url,
     },
@@ -80,7 +93,14 @@ export function generatePageMetadata({
 }
 
 export function generateJsonLd(
-  type: "Organization" | "Service" | "Article" | "BreadcrumbList" | "FAQPage",
+  type:
+    | "Organization"
+    | "Service"
+    | "Article"
+    | "BreadcrumbList"
+    | "FAQPage"
+    | "Person"
+    | "ProfilePage",
   data: Record<string, unknown>,
 ) {
   const base = {
@@ -109,5 +129,76 @@ export function breadcrumbJsonLd(items: Array<{ name: string; href: string }>) {
       name: item.name,
       item: `${SITE_METADATA.siteUrl}${item.href}`,
     })),
+  });
+}
+
+/**
+ * ProfilePage structured data wrapping a `Person` for the author's About page.
+ * This is the canonical entity that tutorial bylines reference via `rel="author"`.
+ */
+export function authorProfileJsonLd(knowsAbout: string[]) {
+  return generateJsonLd("ProfilePage", {
+    mainEntity: {
+      "@type": "Person",
+      name: AUTHOR.name,
+      jobTitle: AUTHOR.role,
+      description: AUTHOR.bio,
+      image: absoluteUrl(AUTHOR.image),
+      url: absoluteUrl(AUTHOR.url),
+      knowsAbout,
+      worksFor: {
+        "@type": "Organization",
+        name: "Algo Dojo, LLC",
+        url: SITE_METADATA.siteUrl,
+      },
+    },
+  });
+}
+
+/**
+ * Article structured data with a named `Person` author and `Organization`
+ * publisher — the authorship signals Google uses to assess E-E-A-T.
+ */
+export function articleJsonLd({
+  title,
+  description,
+  path,
+  publishedAt,
+  updatedAt,
+  image,
+}: {
+  title: string;
+  description: string;
+  path: string;
+  publishedAt: string;
+  updatedAt: string;
+  image?: string;
+}) {
+  return generateJsonLd("Article", {
+    headline: title,
+    description,
+    image: absoluteUrl(image ?? SITE_METADATA.ogImage),
+    datePublished: publishedAt,
+    dateModified: updatedAt,
+    author: {
+      "@type": "Person",
+      name: AUTHOR.name,
+      jobTitle: AUTHOR.role,
+      description: AUTHOR.bio,
+      image: absoluteUrl(AUTHOR.image),
+      url: absoluteUrl(AUTHOR.url),
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Algo Dojo, LLC",
+      logo: {
+        "@type": "ImageObject",
+        url: absoluteUrl("/images/logo.png"),
+      },
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": absoluteUrl(path),
+    },
   });
 }

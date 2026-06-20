@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES } from "@/lib/constants";
+import { AUTHOR, TUTORIAL_CATEGORIES, TUTORIAL_DIFFICULTIES } from "@/lib/constants";
 import type { Tutorial } from "@/lib/types";
 
 interface TutorialCardProps {
@@ -50,7 +50,7 @@ export function TutorialCard({ tutorial }: TutorialCardProps) {
 
           <div className="mt-auto flex items-center justify-between gap-4 border-t border-border pt-4 text-sm text-text-muted">
             <span>{tutorial.estimatedReadTime} min read</span>
-            <span className="text-text-secondary">By {tutorial.author}</span>
+            <span className="text-text-secondary">By {AUTHOR.name}</span>
           </div>
         </div>
       </article>

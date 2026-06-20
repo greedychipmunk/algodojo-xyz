@@ -1,6 +1,9 @@
+import Image from "next/image";
+import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { CtaSection } from "@/components/sections/cta-section";
+import { AUTHOR } from "@/lib/constants";
 import { generatePageMetadata, breadcrumbJsonLd } from "@/lib/metadata";
 
 export const metadata = generatePageMetadata({
@@ -94,6 +97,38 @@ export default function AboutPage() {
                 </p>
               </div>
             ))}
+          </div>
+        </Container>
+      </section>
+
+      <section className="py-20 sm:py-28">
+        <Container>
+          <SectionHeading title="The Team" centered />
+          <div className="mx-auto mt-16 max-w-2xl">
+            <Link
+              href={AUTHOR.url}
+              className="group flex flex-col items-center gap-5 rounded-xl border border-border bg-bg-card p-8 text-center transition-all duration-200 hover:-translate-y-0.5 hover:border-border-hover hover:bg-bg-card-hover hover:shadow-card-hover sm:flex-row sm:items-center sm:gap-6 sm:text-left"
+            >
+              <Image
+                src={AUTHOR.image}
+                alt={`${AUTHOR.name}, ${AUTHOR.role}`}
+                width={96}
+                height={96}
+                className="h-24 w-24 shrink-0 rounded-full object-cover ring-2 ring-border"
+              />
+              <div>
+                <h3 className="text-xl font-semibold text-text-primary transition-colors group-hover:text-accent">
+                  {AUTHOR.name}
+                </h3>
+                <p className="mt-1 text-sm font-medium text-accent">
+                  {AUTHOR.role}
+                </p>
+                <p className="mt-3 text-text-secondary">{AUTHOR.bio}</p>
+                <span className="mt-3 inline-block text-sm font-medium text-accent">
+                  Read full profile →
+                </span>
+              </div>
+            </Link>
           </div>
         </Container>
       </section>
