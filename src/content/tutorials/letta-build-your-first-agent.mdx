@@ -96,6 +96,17 @@ A few things worth understanding here.
 
 **Print the agent ID.** You'll need it in the next section to prove statefulness across processes.
 
+```bash
+python first_agent.py
+```
+
+You'll see something like:
+
+```
+Agent ID: agent-abc12345-...
+```
+
+
 ## Send a Message
 
 Once the agent exists, you send messages to it through `client.agents.messages.create`. Each call appends to the agent's conversation history on the server:
