@@ -1,0 +1,459 @@
+---
+title: "Securely Run a Letta Server in the Cloud with Tailscale"
+slug: "letta-secure-cloud-server"
+description: "Deploy a self-hosted Letta server on a $4/month VPS, lock it behind Tailscale for zero-config encrypted access, and skip the public internet entirely. Includes a cost-benefit analysis of every major deployment option."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "tailscale", "self-hosting", "cloud-deployment", "security", "advanced"]
+difficulty: "advanced"
+estimatedReadTime: 18
+publishedAt: "2026-06-25"
+updatedAt: "2026-06-25"
+author: "Algo Dojo"
+---
+
+## Why Self-Host Letta in the Cloud?
+
+The tutorials in this series have run Letta on `localhost` — perfect for development, but not for an agent that needs to be reachable from your phone, your laptop, or a webhook from Telegram. A local server goes to sleep when your laptop closes. A cloud server stays on.
+
+The obvious move is to deploy Letta to a cloud VM and expose it on a public port. That works, but it opens a question every self-hoster has to answer: *how do you secure a server that's now on the public internet?* The standard answers — reverse proxy, TLS certificate, firewall rules, fail2ban, an auth layer — are all correct and all tedious. Each one is a thing you can get wrong, and each one is a thing you have to maintain.
+
+This tutorial takes a different path. You'll deploy Letta on a cheap VPS, then use [Tailscale](https://tailscale.com) to make it reachable only through an encrypted WireGuard tunnel — no open ports, no reverse proxy, no certificate management, no public attack surface. The server is invisible to the internet and trivially accessible from any device on your tailnet. For the cases where you *do* need public access (a webhook endpoint, for instance), Tailscale Funnel opens a single pinhole with automatic TLS.
+
+We'll also do the math. There are five realistic ways to run a Letta server in the cloud, and the price difference between the cheapest and the most expensive is more than 10x. By the end, you'll know exactly which one fits your budget and your tolerance for infrastructure work.
+
+## Cost-Benefit Analysis: Five Deployment Options
+
+Before touching a terminal, let's compare every realistic option for running a self-hosted Letta server. All prices are as of mid-2026 and assume a single-user deployment with a cloud LLM provider (OpenAI, Anthropic, etc.) — the Letta server itself only orchestrates calls; it doesn't run the model.
+
+| Option | Monthly cost | Setup effort | Public exposure | Best for |
+| --- | --- | --- | --- | --- |
+| **Hetzner VPS + Tailscale** | ~$4–8 | Medium (SSH, Docker, Tailscale) | None (private tailnet) | Lowest cost, full control, privacy-first |
+| **DigitalOcean Droplet + Tailscale** | ~$6–12 | Medium (same as above) | None (private tailnet) | Familiar platform, better docs |
+| **Fly.io** | ~$3–5 | Low (Dockerfile + CLI) | Auto-HTTPS via Fly proxy | Infra-as-code, quick deploys |
+| **Railway** | ~$5 | Lowest (one-click template) | Auto-HTTPS via Railway | Fastest path, zero ops |
+| **Letta Cloud** | $0 (free tier) → paid plans | None (managed) | Managed | Zero setup, zero control |
+
+### The cheapest path: Hetzner + Tailscale
+
+A Hetzner Cloud CX22 instance gives you 2 vCPU, 4 GB RAM, 40 GB NVMe, and 20 TB of bandwidth for about **$4.59/month**. That's enough to run the Letta Docker image (Python server + bundled PostgreSQL + pgvector) with headroom for a handful of active agents. The bundled Postgres uses roughly 300 MB; the Python server another 500 MB; agent memory and embeddings grow at about 50–200 MB per month per active agent.
+
+For comparison, the same specs cost $48/month on DigitalOcean and $48/month on Vultr. Hetzner's data centers are in Germany, Finland, and the US (Ashburn, VA and Hillsboro, OR) — fine if you're in Europe or eastern North America, a latency trade-off if you're in Asia-Pacific.
+
+The trade-off with Hetzner is that you manage everything yourself: the OS, Docker, updates, backups. That's the work this tutorial walks you through. If you'd rather skip it, Railway's one-click template gets you a running Letta server in minutes for about $5/month — but you give up the ability to lock the server behind a private network, which is the whole point of using Tailscale.
+
+### Why Tailscale changes the equation
+
+Without Tailscale, a self-hosted Letta server on a VPS needs to be exposed on a public port to be reachable. That means a reverse proxy (Caddy, Traefik, or nginx), a TLS certificate (Let's Encrypt), a firewall (UFW), and ideally fail2ban for brute-force protection. Each of those is a configuration file you can get wrong, and each one is a maintenance burden that compounds over time.
+
+Tailscale replaces all of that with a single WireGuard mesh. Install the Tailscale client on your VPS and on every device you want to reach it from. The VPS gets a stable IP in the `100.x.x.x` range and a hostname like `letta.pango-lin.ts.net`. Traffic between your devices and the server is end-to-end encrypted. No ports are opened on the VPS. No certificates to manage. No reverse proxy to configure.
+
+For the cases where you *do* need public access — a Telegram webhook, for example — Tailscale Funnel opens a single HTTPS endpoint that proxies to your local service, with automatic TLS certificate management. You get public reachability without exposing the Letta server's API directly.
+
+**Tailscale pricing:** Free for personal use (up to 100 devices). The free tier is more than enough for this setup.
+
+## Prerequisites
+
+- A Hetzner Cloud account (or any VPS provider — the steps transfer directly)
+- A Tailscale account (free tier is fine)
+- An SSH key pair for server access
+- An LLM API key (OpenAI, Anthropic, etc.) — the Letta server orchestrates calls to a cloud provider; it doesn't run the model locally
+
+If you've followed [Run a Completely Local Letta Instance](/tutorials/letta-local-instance), you already know the Docker setup. This tutorial reuses the same Docker image but points it at a cloud LLM provider instead of Ollama, and puts the whole thing behind Tailscale instead of leaving it on `localhost`.
+
+## Provision a VPS on Hetzner
+
+Create a Hetzner Cloud account if you don't have one. Generate a new SSH key pair locally if you don't already have one:
+
+```bash
+ssh-keygen -t ed25519 -C "hetzner-letta" -f ~/.ssh/hetzner_letta
+```
+
+In the Hetzner Cloud console, add your public key (`~/.ssh/hetzner_letta.pub`) under **SSH Keys**. Then create a new server:
+
+- **Image:** Ubuntu 24.04 LTS
+- **Type:** CX22 (2 vCPU, 4 GB RAM, 40 GB NVMe) — about $4.59/month
+- **Location:** Falkenstein (Germany) or Ashburn (US East) — pick whichever is closer to you
+- **SSH key:** Select the one you just added
+
+Once the server is up, note its public IP. You'll SSH in to set everything up:
+
+```bash
+ssh -i ~/.ssh/hetzner_letta root@<your-server-ip>
+```
+
+## Harden the Server
+
+Before installing anything, lock down the basics. This is standard hardening for any internet-facing VPS — the same steps you'd take regardless of what you're hosting.
+
+### Update the system
+
+```bash
+apt update && apt upgrade -y
+```
+
+### Create a non-root user
+
+Running services as root is a bad habit. Create a dedicated user:
+
+```bash
+adduser letta --gecos "" --disabled-password
+usermod -aG sudo letta
+mkdir -p /home/letta/.ssh
+cp ~/.ssh/authorized_keys /home/letta/.ssh/
+chown -R letta:letta /home/letta/.ssh
+chmod 700 /home/letta/.ssh
+chmod 600 /home/letta/.ssh/authorized_keys
+```
+
+### Configure SSH for key-only access
+
+Edit `/etc/ssh/sshd_config` and set:
+
+```
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+```
+
+Then restart SSH:
+
+```bash
+systemctl restart sshd
+```
+
+Test that you can SSH in as the `letta` user from a new terminal before closing your root session:
+
+```bash
+ssh -i ~/.ssh/hetzner_letta letta@<your-server-ip>
+```
+
+### Enable the firewall
+
+UFW (Uncomplicated Firewall) comes pre-installed on Ubuntu. Allow SSH and nothing else — Tailscale will handle the rest:
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw enable
+```
+
+At this point, the only port open on the server is 22 (SSH). The Letta server will listen on port 8283, but it will bind to `localhost` only — it will never be reachable from the public internet.
+
+## Install Tailscale
+
+Install the Tailscale client on the VPS:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+Authenticate the node to your tailnet:
+
+```bash
+sudo tailscale up
+```
+
+This prints a URL. Open it in your browser, approve the device, and the VPS joins your tailnet. Once connected, it gets a stable Tailscale IP (in the `100.x.x.x` range) and a hostname like `letta.tailnet-name.ts.net`.
+
+Check the status:
+
+```bash
+tailscale status
+```
+
+You should see the VPS listed as connected. Now install Tailscale on your laptop, phone, or any other device you want to reach the Letta server from. All of them join the same tailnet and can reach the VPS over the encrypted WireGuard tunnel.
+
+### Enable HTTPS for Tailscale Serve
+
+Tailscale Serve needs HTTPS enabled in your tailnet to provision TLS certificates. If you haven't enabled it yet, the `tailscale serve` command will prompt you to do so interactively. You can also enable it from the Tailscale admin console under **DNS** → **HTTPS Certificates**.
+
+## Install Docker
+
+Install Docker and Docker Compose on the VPS:
+
+```bash
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+Add the `letta` user to the docker group so you don't need `sudo` for every Docker command:
+
+```bash
+sudo usermod -aG docker letta
+newgrp docker
+```
+
+## Deploy Letta with Docker Compose
+
+Create a project directory and a `docker-compose.yml` that runs Letta with password protection enabled and the server bound to `localhost`:
+
+```bash
+mkdir -p ~/letta && cd ~/letta
+```
+
+Create a `.env` file with your LLM API key and a strong server password:
+
+```bash
+# ~/letta/.env
+OPENAI_API_KEY=sk-your-openai-api-key
+SECURE=true
+LETTA_SERVER_PASSWORD=generate-a-strong-random-password-here
+```
+
+Generate a strong password rather than typing one:
+
+```bash
+openssl rand -base64 24
+```
+
+Create the `docker-compose.yml`:
+
+```yaml
+# ~/letta/docker-compose.yml
+services:
+  letta:
+    image: letta/letta:latest
+    container_name: letta
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8283:8283"
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+      - ./data/letta:/root/.letta
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8283/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+```
+
+The key line is `"127.0.0.1:8283:8283"`. By binding to `127.0.0.1`, the Letta server is only reachable from the VPS itself — not from the public internet. Tailscale Serve will proxy traffic from your tailnet to this localhost address.
+
+The `start_period: 90s` in the health check accommodates the initial Alembic migration, which creates roughly 42 tables on first launch and takes 1–2 minutes on a 2 GB VPS.
+
+Start the server:
+
+```bash
+docker compose up -d
+```
+
+Watch the logs to confirm it started cleanly:
+
+```bash
+docker compose logs -f letta
+```
+
+You should see the server announce it's listening on port 8283. Once it's up, verify the health endpoint from the VPS itself:
+
+```bash
+curl http://localhost:8283/v1/health
+```
+
+## Expose Letta Through Tailscale Serve
+
+Now that Letta is running on `localhost:8283` inside the VPS, use Tailscale Serve to proxy it to your tailnet over HTTPS:
+
+```bash
+sudo tailscale serve --https 443 http://localhost:8283
+```
+
+This tells Tailscale to listen on port 443 (HTTPS) on the VPS's Tailscale interface and proxy all requests to `localhost:8283` where Letta is listening. Tailscale automatically provisions a TLS certificate for the VPS's tailnet hostname.
+
+Verify the serve status:
+
+```bash
+tailscale serve status
+```
+
+You should see a mapping from `https://letta.tailnet-name.ts.net` to `http://localhost:8283`.
+
+Now, from any device on your tailnet — your laptop, your phone, your iPad — open a browser and navigate to:
+
+```
+https://letta.tailnet-name.ts.net
+```
+
+Replace `letta.tailnet-name.ts.net` with your actual Tailscale hostname (check `tailscale status` for the exact name). You'll see the Letta ADE (Agent Development Environment) load over HTTPS, with a valid certificate, through an encrypted WireGuard tunnel. No ports were opened on the VPS. No reverse proxy was configured. No certificate was manually managed.
+
+### Connect the ADE to your server
+
+The Letta ADE at [app.letta.com](https://app.letta.com) can connect to self-hosted servers. Since your server is now reachable over HTTPS at `https://letta.tailnet-name.ts.net`, you can add it as a remote server:
+
+1. Open [app.letta.com](https://app.letta.com)
+2. Click **Add remote server**
+3. Enter the server name (e.g., "Hetzner VPS")
+4. Enter the URL: `https://letta.tailnet-name.ts.net`
+5. Enter the password you set in `LETTA_SERVER_PASSWORD`
+
+The ADE connects to your self-hosted server over the Tailscale tunnel. You can create agents, manage memory blocks, and send messages — all through the encrypted private network.
+
+## Connect from the Python SDK
+
+Your Python scripts can connect to the server the same way. Point the `Letta` client at the Tailscale hostname:
+
+```python
+# cloud_agent.py
+from letta_client import Letta
+
+client = Letta(
+    base_url="https://letta.tailnet-name.ts.net",
+    token="generate-a-strong-random-password-here",  # the LETTA_SERVER_PASSWORD
+)
+
+agent = client.agents.create(
+    model="openai/gpt-4o-mini",
+    memory_blocks=[
+        {"label": "human", "value": "The human is accessing this agent through a Tailscale tunnel."},
+        {"label": "persona", "value": "You are a helpful assistant running on a secure cloud server."},
+    ],
+)
+
+response = client.agents.messages.create(
+    agent_id=agent.id,
+    messages=[{"role": "user", "content": "Confirm you're running on a remote server."}],
+)
+for message in response.messages:
+    if message.message_type == "assistant_message":
+        print("Agent:", message.content)
+```
+
+Run this from any device on your tailnet — your laptop, a second VPS, a Raspberry Pi. The connection is encrypted end-to-end and authenticated by Tailscale's identity layer. No one outside your tailnet can reach the server.
+
+## When You Need Public Access: Tailscale Funnel
+
+Most of the time, private tailnet access is exactly what you want — your agents are for you, not for the public internet. But some integrations require a public URL. A Telegram webhook, for instance, needs to be reachable from Telegram's servers, which are not on your tailnet.
+
+Tailscale Funnel opens a single public HTTPS endpoint that proxies to your local service. It's the same mechanism as Serve, but the URL is reachable from the open internet:
+
+```bash
+sudo tailscale funnel --https 443 http://localhost:8283
+```
+
+Now `https://letta.tailnet-name.ts.net` is reachable from anywhere — not just your tailnet. Tailscale manages the TLS certificate automatically. Access is still governed by your tailnet's ACLs, so you can restrict which identities can reach the Funnel endpoint.
+
+To switch back to tailnet-only access:
+
+```bash
+sudo tailscale serve --https 443 http://localhost:8283
+```
+
+The `serve` command makes the endpoint private (tailnet only); the `funnel` command makes it public. You can't have both on the same port simultaneously.
+
+### Using Funnel for a Telegram webhook
+
+If you followed [Talk to Letta Agents via Telegram](/tutorials/letta-telegram-bot), you can point the webhook at your Funnel URL instead of `localhost`:
+
+```python
+# In bot.py, set the webhook to the Funnel URL
+await application.bot.set_webhook(
+    url="https://letta.tailnet-name.ts.net/webhook/telegram"
+)
+```
+
+The webhook is now reachable from Telegram's servers, but the Letta API itself remains private behind Tailscale Serve. You've opened exactly one pinhole for exactly one purpose.
+
+## Make It Survive Reboots
+
+Tailscale Serve and Funnel configurations persist across reboots automatically — Tailscale stores the serve config in its state directory. But Docker Compose needs a hand. Create a systemd service to start the Letta stack on boot:
+
+```bash
+sudo tee /etc/systemd/system/letta.service > /dev/null << 'EOF'
+[Unit]
+Description=Letta Server (Docker Compose)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/letta/letta
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable letta
+```
+
+Now the Letta server starts automatically when the VPS boots. Tailscale reconnects on its own, and the serve configuration is restored from state.
+
+## Back Up Your Data
+
+The Letta server stores everything — agents, memory blocks, conversation history, archival memory — in the PostgreSQL data directory at `~/letta/data/pgdata`. Back up that directory regularly.
+
+A simple cron job that takes a nightly copy:
+
+```bash
+crontab -e
+```
+
+Add:
+
+```
+0 3 * * * tar czf /home/letta/backups/letta-$(date +\%Y\%m\%d).tar.gz -C /home/letta/letta data && find /home/letta/backups -name "letta-*.tar.gz" -mtime +7 -delete
+```
+
+This creates a compressed backup at 3 AM every night and deletes backups older than 7 days. For offsite backups, sync the backup directory to an S3-compatible storage bucket or rsync it to another machine.
+
+## Troubleshooting
+
+### The ADE won't connect over HTTPS
+
+The Letta ADE requires HTTPS for remote servers — HTTP is only allowed for `localhost`. Tailscale Serve handles this automatically by provisioning a TLS certificate. If the ADE still won't connect, verify that HTTPS is enabled in your tailnet (Tailscale admin console → **DNS** → **HTTPS Certificates**) and that `tailscale serve status` shows an HTTPS mapping.
+
+### Container restarts every few minutes
+
+Check for OOM (out-of-memory) kills:
+
+```bash
+docker inspect letta | grep -i oom
+```
+
+PostgreSQL + the Python server + pgvector index loading can push past 1.5 GB of RAM under load. If you're on the 2 GB CX22 plan and hitting OOM, either upgrade to the 4 GB plan or tune PostgreSQL's `shared_buffers` and `work_mem` down in the container's environment.
+
+### Migrations hang on first start
+
+The initial Alembic migration creates about 42 tables and can take 2–3 minutes on a 2 GB VPS. The `start_period: 90s` in the health check accommodates this, but if the container is being killed before migrations finish, increase the `start_period` to `180s` and check that the `data/pgdata` directory has correct permissions.
+
+### "No embedding model configured"
+
+The Docker server requires an explicit embedding model per agent, or a default set via `LETTA_DEFAULT_EMBEDDING_MODEL`. Add this to your `.env`:
+
+```
+LETTA_DEFAULT_EMBEDDING_MODEL=openai/text-embedding-3-small
+```
+
+### Tailscale Funnel returns 404
+
+Funnel needs to be explicitly enabled in your tailnet's ACLs. In the Tailscale admin console, go to **Access Controls** and add a `funnel` grant for the node. Without it, the Funnel endpoint returns 404 even though the serve configuration looks correct.
+
+## Where to Go Next
+
+You now have a Letta server running on a $4/month VPS, invisible to the public internet, reachable from any device on your tailnet over an encrypted tunnel. The same agents you built in [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent), [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools), and [Talk to Letta Agents via Telegram](/tutorials/letta-telegram-bot) work identically against this server — the only change is the base URL.
+
+If you want to go further:
+
+- **Add a second VPS** to your tailnet and run Ollama on it, then point your Letta server at `OLLAMA_BASE_URL` to get the privacy of [Run a Completely Local Letta Instance](/tutorials/letta-local-instance) with the always-on availability of a cloud server.
+- **Set up Tailscale ACLs** to restrict which devices on your tailnet can reach the Letta server. A simple rule like `dst: ["letta:8283"], action: accept, src: ["your-laptop"]` limits access to a single device.
+- **Add monitoring** with a lightweight tool like Uptime Kuma (also behind Tailscale Serve) to alert you if the Letta health endpoint stops responding.
