@@ -1,0 +1,855 @@
+---
+title: "Integrate a Leaflet.pub Blog on Your Next.js Site"
+slug: "atproto-leaflet-blog-feed"
+description: "Pull your Leaflet.pub articles into a Next.js site using the AT Protocol or RSS — no API keys, no rate limits. Set up automatic updates so new posts appear on your site the moment they're published."
+tier: "free"
+category: "automation"
+tags: ["atproto", "bluesky", "leaflet", "nextjs", "automation", "typescript", "rss", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 20
+publishedAt: "2026-06-26"
+updatedAt: "2026-06-26"
+author: "Algo Dojo"
+---
+
+## What You're Building
+
+[Leaflet.pub](https://leaflet.pub/) is an open social publishing platform — blogs, newsletters, standalone posts — built on the AT Protocol, the same decentralized network that powers Bluesky. When someone publishes an article on Leaflet, that article lives as a record on *their* Personal Data Server (PDS), not behind a proprietary API.
+
+That means you can read those records directly. No API key. No rate limit tier. No middleware. Just an HTTP GET against the PDS, the same way the Bluesky app reads posts.
+
+In this tutorial you'll build a Next.js page that:
+
+1. Resolves a Leaflet user's handle to their DID (decentralized identifier)
+2. Queries their PDS for `site.standard.document` records — the standard.site lexicon for published articles
+3. Renders the articles as cards that match your site's existing design system
+4. **Automatically picks up new posts** when they're published on Leaflet — no manual rebuild required
+
+The result is a server-rendered feed of blog articles pulled straight from the open social web, styled to look native on your site. When you publish a new article on Leaflet, it appears on your Next.js site automatically — within minutes via ISR, or instantly via on-demand revalidation.
+
+You'll also learn a simpler alternative: pulling the same data from Leaflet's RSS feed, which requires no AT Protocol knowledge at all.
+
+## Prerequisites
+
+- A Next.js project (App Router, TypeScript)
+- A Leaflet.pub account with at least one published article (or use the Leaflet Lab Notes publication as your test data — we'll use `leaflet.pub` as the handle)
+- No AT Protocol SDK required — we'll use plain `fetch` calls
+
+## How the AT Protocol Stores Leaflet Articles
+
+Before writing code, understand the data flow. This is the part most tutorials skip, and it's where most people get stuck.
+
+### Records, Collections, and Repositories
+
+The AT Protocol organizes user data into **repositories**. A repository is a collection of records owned by one user and stored on their PDS. Each record belongs to a **collection** — a namespaced identifier (NSID) that defines what type of record it is.
+
+When you post on Bluesky, you create a record in the `app.bsky.feed.post` collection. When you publish an article on Leaflet, you create a record in the `site.standard.document` collection.
+
+```
+User Repository (on their PDS)
+├── app.bsky.feed.post        ← Bluesky posts
+├── app.bsky.graph.follow     ← Bluesky follows
+├── site.standard.publication ← Leaflet publication metadata
+└── site.standard.document    ← Leaflet articles (what we want)
+```
+
+### The standard.site Lexicons
+
+Leaflet uses [standard.site](https://standard.site) lexicons — shared schemas for long-form publishing on the AT Protocol. Two lexicons matter to us:
+
+**`site.standard.publication`** — metadata about a blog/newsletter (name, URL, description, theme). Think of it as the container.
+
+**`site.standard.document`** — an individual article. This is what we'll fetch. Each document record contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Article title |
+| `description` | string | Brief excerpt or summary |
+| `publishedAt` | datetime | When the article was published |
+| `path` | string | URL path (combine with publication URL for the full link) |
+| `site` | string | AT-URI of the publication this document belongs to |
+| `textContent` | string | Plaintext body content |
+| `tags` | string[] | Article tags |
+| `coverImage` | blob | Cover image (if one was set) |
+
+### The Reading Flow
+
+To display someone's Leaflet articles on your site, you do three things:
+
+1. **Resolve their handle to a DID** — the AT Protocol addresses all data by DID, not by handle. We need to convert `leaflet.pub` to something like `did:plc:abc123...`.
+2. **List their `site.standard.document` records** — query their PDS for all records in that collection.
+3. **Render the results** — map the record fields to your UI components.
+
+No authentication required. The `com.atproto.repo.listRecords` endpoint is public — anyone can read public records from any PDS.
+
+## Step 1: Resolve a Handle to a DID
+
+Every AT Protocol user has a handle (like `leaflet.pub` or `dawson.bsky.social`) and a DID (like `did:plc:re3ebnp5v7ffagz6rb6xfei4`). The handle is human-readable; the DID is the permanent identifier. We need the DID to query the PDS.
+
+The AT Protocol provides a public endpoint for this:
+
+```
+GET https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=leaflet.pub
+```
+
+The response is simple:
+
+```json
+{
+  "did": "did:plc:re3ebnp5v7ffagz6rb6xfei4"
+}
+```
+
+Let's write a helper function. Create a new file at `src/lib/atproto.ts`:
+
+```typescript
+// src/lib/atproto.ts
+
+/** The public Bluesky XRPC endpoint — no auth required for reads. */
+const BSKY_PUBLIC_ENDPOINT = "https://public.api.bsky.app";
+
+/** standard.site collection IDs for Leaflet publications and documents. */
+export const PUBLICATION_COLLECTION = "site.standard.publication";
+export const DOCUMENT_COLLECTION = "site.standard.document";
+
+/**
+ * Resolve an AT Protocol handle (e.g. "leaflet.pub") to a DID.
+ * Uses the public Bluesky AppView — no authentication required.
+ */
+export async function resolveHandle(handle: string): Promise<string> {
+  const url = `${BSKY_PUBLIC_ENDPOINT}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`;
+
+  const response = await fetch(url, {
+    next: { revalidate: 3600 }, // Cache for 1 hour — DIDs rarely change
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to resolve handle "${handle}": ${response.status}`);
+  }
+
+  const data = (await response.json()) as { did: string };
+  return data.did;
+}
+```
+
+The `next: { revalidate: 3600 }` option tells Next.js to cache the result for an hour. DIDs are stable identifiers — they don't change unless the user migrates PDS providers — so a long cache is safe.
+
+## Step 2: List Document Records from the PDS
+
+Now we need to query the user's PDS for all records in the `site.standard.document` collection. The endpoint is:
+
+```
+GET https://bsky.social/xrpc/com.atproto.repo.listRecords?repo={DID}&collection=site.standard.document&limit=50
+```
+
+The response looks like:
+
+```json
+{
+  "records": [
+    {
+      "uri": "at://did:plc:abc/site.standard.document/3xyz",
+      "cid": "bafyrei...",
+      "value": {
+        "$type": "site.standard.document",
+        "title": "Looseleafs — publish standalone Leaflet posts to AT Protocol!",
+        "description": "Lab Notes 016: unifying Leaflet so that any doc or canvas can be published to atproto...",
+        "publishedAt": "2025-12-15T10:00:00.000Z",
+        "path": "/3m7lgf5urfs2y",
+        "site": "at://did:plc:abc/site.standard.publication/3lwafzkjqm25s",
+        "tags": ["leaflet", "atproto", "publishing"],
+        "textContent": "..."
+      }
+    }
+  ]
+}
+```
+
+Add the listing function to `src/lib/atproto.ts`:
+
+```typescript
+// Add to src/lib/atproto.ts
+
+/** Shape of a standard.site document record's value. */
+export interface LeafletDocument {
+  title: string;
+  description?: string;
+  publishedAt: string;
+  path?: string;
+  site?: string;
+  tags?: string[];
+  textContent?: string;
+}
+
+/** Shape of a single record returned by listRecords. */
+interface ListRecordsResponse {
+  cursor?: string;
+  records: Array<{
+    uri: string;
+    cid: string;
+    value: LeafletDocument & { $type: string };
+  }>;
+}
+
+/**
+ * List a user's Leaflet articles from their PDS via the AT Protocol.
+ * No authentication required — public records are world-readable.
+ */
+export async function getLeafletDocuments(
+  did: string,
+  limit = 50,
+): Promise<LeafletDocument[]> {
+  const params = new URLSearchParams({
+    repo: did,
+    collection: DOCUMENT_COLLECTION,
+    limit: limit.toString(),
+  });
+
+  const url = `${BSKY_PUBLIC_ENDPOINT}/xrpc/com.atproto.repo.listRecords?${params}`;
+
+  const response = await fetch(url, {
+    next: { revalidate: 300 }, // Cache for 5 minutes — articles update infrequently
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to list records for "${did}": ${response.status}`);
+  }
+
+  const data = (await response.json()) as ListRecordsResponse;
+
+  return data.records
+    .map((record) => record.value)
+    .sort(
+      (a, b) =>
+        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+    );
+}
+```
+
+The `next: { revalidate: 300 }` option caches the response for 5 minutes. Articles don't change every request, so this keeps your site fast without serving stale data for too long.
+
+## Step 3: Get the Publication URL
+
+Each document record has a `site` field pointing to the publication it belongs to. We need the publication's `url` field to construct the full URL for each article (publication URL + document path).
+
+Add this function to fetch the publication record:
+
+```typescript
+// Add to src/lib/atproto.ts
+
+/** Shape of a standard.site publication record. */
+export interface LeafletPublication {
+  name: string;
+  url: string;
+  description?: string;
+}
+
+/**
+ * Fetch a Leaflet publication record by its AT-URI.
+ * The publication contains the base URL we need to construct
+ * full article links (publication URL + document path).
+ */
+export async function getLeafletPublication(
+  publicationUri: string,
+): Promise<LeafletPublication | null> {
+  // The AT-URI looks like: at://did:plc:abc/site.standard.publication/3lwafzkjqm25s
+  // We need to extract the DID and rkey to fetch the record
+  const match = publicationUri.match(/^at:\/\/([^/]+)\/site\.standard\.publication\/(.+)$/);
+  if (!match) return null;
+
+  const [, did, rkey] = match;
+  const params = new URLSearchParams({
+    repo: did,
+    collection: PUBLICATION_COLLECTION,
+    rkey,
+  });
+
+  const url = `${BSKY_PUBLIC_ENDPOINT}/xrpc/com.atproto.repo.getRecord?${params}`;
+
+  const response = await fetch(url, {
+    next: { revalidate: 3600 }, // Publication metadata rarely changes
+  });
+
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as { value: LeafletPublication & { $type: string } };
+  return data.value;
+}
+```
+
+## Step 4: Build the Server Component
+
+Now let's wire everything together in a Next.js Server Component. This page will fetch the articles at build/request time and render them as cards styled to match the site.
+
+Create a new page at `src/app/(marketing)/leaflet/page.tsx`:
+
+```tsx
+// src/app/(marketing)/leaflet/page.tsx
+
+import { Container } from "@/components/ui/container";
+import { generatePageMetadata } from "@/lib/metadata";
+import {
+  resolveHandle,
+  getLeafletDocuments,
+  getLeafletPublication,
+  type LeafletDocument,
+} from "@/lib/atproto";
+
+export const metadata = generatePageMetadata({
+  title: "Leaflet Articles",
+  description: "Blog articles published on Leaflet.pub, fetched live from the AT Protocol.",
+  path: "/leaflet",
+});
+
+/** The Leaflet handle to fetch articles for. */
+const LEAFLET_HANDLE = "leaflet.pub";
+
+/** Maximum number of articles to display. */
+const MAX_ARTICLES = 12;
+
+export default async function LeafletPage() {
+  let articles: LeafletDocument[] = [];
+  let publicationUrl = `https://${LEAFLET_HANDLE}`;
+  let publicationName = "Leaflet";
+  let error: string | null = null;
+
+  try {
+    // Step 1: Resolve the handle to a DID
+    const did = await resolveHandle(LEAFLET_HANDLE);
+
+    // Step 2: Fetch all document records
+    const documents = await getLeafletDocuments(did, MAX_ARTICLES);
+
+    // Step 3: Get the publication URL for constructing article links
+    if (documents.length > 0 && documents[0].site) {
+      const publication = await getLeafletPublication(documents[0].site);
+      if (publication) {
+        publicationUrl = publication.url.replace(/\/$/, "");
+        publicationName = publication.name;
+      }
+    }
+
+    articles = documents;
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Failed to fetch articles";
+  }
+
+  return (
+    <section className="py-20 sm:py-28">
+      <Container>
+        <h1 className="text-3xl font-bold sm:text-4xl">{publicationName}</h1>
+        <p className="mt-4 max-w-2xl text-text-secondary">
+          Articles published on{" "}
+          <a
+            href={publicationUrl}
+            className="text-accent hover:text-accent-hover"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {publicationUrl}
+          </a>{" "}
+          — fetched live from the AT Protocol.
+        </p>
+
+        {error ? (
+          <div className="mt-12 rounded-xl border border-border bg-bg-card p-8 text-center shadow-card">
+            <p className="text-sm text-text-secondary">
+              Could not load articles: {error}
+            </p>
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="mt-12 rounded-xl border border-border bg-bg-card p-8 text-center shadow-card">
+            <p className="text-sm text-text-secondary">No articles found.</p>
+          </div>
+        ) : (
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {articles.map((article) => (
+              <ArticleCard
+                key={article.publishedAt}
+                article={article}
+                baseUrl={publicationUrl}
+              />
+            ))}
+          </div>
+        )}
+      </Container>
+    </section>
+  );
+}
+
+function ArticleCard({
+  article,
+  baseUrl,
+}: {
+  article: LeafletDocument;
+  baseUrl: string;
+}) {
+  const href = article.path
+    ? `${baseUrl}${article.path}`
+    : baseUrl;
+
+  const formattedDate = new Date(article.publishedAt).toLocaleDateString(
+    "en-US",
+    { year: "numeric", month: "short", day: "numeric" },
+  );
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block h-full focus-visible:outline-none"
+    >
+      <article className="flex h-full flex-col rounded-xl border border-border bg-bg-card p-6 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-border-hover hover:bg-bg-card-hover hover:shadow-card-hover">
+        {article.tags && article.tags.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2 text-xs font-medium">
+            {article.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full bg-accent/10 px-3 py-1 text-accent"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-1 flex-col gap-4">
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold tracking-tight text-text-primary transition-colors group-hover:text-accent">
+              {article.title}
+            </h3>
+            {article.description && (
+              <p className="text-sm leading-6 text-text-secondary">
+                {article.description.length > 140
+                  ? `${article.description.slice(0, 140).trimEnd()}…`
+                  : article.description}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-auto flex items-center border-t border-border pt-4 text-sm text-text-muted">
+            <span>{formattedDate}</span>
+          </div>
+        </div>
+      </article>
+    </a>
+  );
+}
+```
+
+## Step 5: Add Navigation (Optional)
+
+If you want the Leaflet page to appear in your site's nav bar, add it to the `NAV_ITEMS` array in `src/lib/constants.ts`:
+
+```typescript
+export const NAV_ITEMS: NavItem[] = [
+  { label: "Services", href: "/services" },
+  { label: "Tutorials", href: "/tutorials" },
+  { label: "Frameworks", href: "/tutorials/frameworks" },
+  { label: "Blog", href: "/blog" },
+  { label: "Leaflet", href: "/leaflet" },  // ← new
+  { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
+];
+```
+
+## How the Caching Works
+
+Every `fetch` call in this tutorial uses Next.js's built-in caching via the `next.revalidate` option:
+
+| Call | Cache Duration | Why |
+|------|---------------|-----|
+| `resolveHandle` | 1 hour | DIDs are stable — they only change when a user migrates PDS |
+| `getLeafletDocuments` | 5 minutes | Articles are published infrequently, but new ones should appear reasonably fast |
+| `getLeafletPublication` | 1 hour | Publication metadata (name, URL) rarely changes |
+
+In development (`next dev`), Next.js fetches on every request so you can see changes immediately. In production (`next build` + `next start`), the cache is respected — the first request fetches from the PDS, and subsequent requests serve from cache until the revalidation window expires.
+
+This means a newly published Leaflet article will appear on your site within 5 minutes — the revalidation window for `getLeafletDocuments`. For most blogs, that's fine. But if you want new posts to appear faster — or immediately — read on.
+
+## Step 6: Automatic Updates with On-Demand Revalidation
+
+ISR with a 5-minute window means new posts appear within 5 minutes of publishing. That's good enough for most use cases, but what if you want new posts to appear *immediately*?
+
+Next.js supports **on-demand revalidation** — you can programmatically invalidate the cache for a specific path whenever you want. The pattern is:
+
+1. Create a Route Handler (API route) that calls `revalidatePath`
+2. Trigger that endpoint on a schedule using Vercel Cron Jobs (or any external scheduler)
+
+### Create the Revalidation Endpoint
+
+Create a new file at `src/app/api/revalidate/route.ts`:
+
+```typescript
+// src/app/api/revalidate/route.ts
+
+import { revalidatePath } from "next/cache";
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(request: NextRequest) {
+  // Verify the request is authorized
+  const authHeader = request.headers.get("authorization");
+  const secret = process.env.REVALIDATE_SECRET;
+
+  if (!secret || authHeader !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Invalidate the Leaflet articles page
+  revalidatePath("/leaflet");
+
+  return NextResponse.json({
+    revalidated: true,
+    timestamp: Date.now(),
+  });
+}
+```
+
+The `REVALIDATE_SECRET` environment variable prevents anyone from triggering revalidation at will. Generate a random string for this value:
+
+```bash
+# Generate a random secret
+openssl rand -hex 32
+# Add to .env.local
+echo "REVALIDATE_SECRET=your-generated-secret" >> .env.local
+```
+
+When this endpoint receives a POST request with the correct `Authorization: Bearer <secret>` header, it invalidates the cache for `/leaflet`. The next visitor to that page will get a fresh fetch from the AT Protocol — with any newly published articles.
+
+### Trigger Revalidation on a Schedule
+
+Leaflet doesn't send webhooks when you publish a post, so we'll use a cron job to poll for changes. If you're deployed on Vercel, you can use Vercel Cron Jobs — no external service needed.
+
+Create a `vercel.json` file in your project root:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/revalidate",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}
+```
+
+This tells Vercel to hit your `/api/revalidate` endpoint every 10 minutes. Vercel automatically sends the `Authorization: Bearer <CRON_SECRET>` header — set the `CRON_SECRET` environment variable in your Vercel project settings to the same value as `REVALIDATE_SECRET`.
+
+Wait — Vercel Cron sends requests as GET, not POST. Let's update the route handler to accept both:
+
+```typescript
+// src/app/api/revalidate/route.ts
+
+import { revalidatePath } from "next/cache";
+import { NextRequest, NextResponse } from "next/server";
+
+export async function GET(request: NextRequest) {
+  return handleRevalidation(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handleRevalidation(request);
+}
+
+async function handleRevalidation(request: NextRequest) {
+  // Vercel Cron sends Authorization: Bearer <CRON_SECRET>
+  // Manual calls can use a query param: ?secret=<REVALIDATE_SECRET>
+  const authHeader = request.headers.get("authorization");
+  const querySecret = request.nextUrl.searchParams.get("secret");
+  const expectedSecret = process.env.REVALIDATE_SECRET || process.env.CRON_SECRET;
+
+  const isAuthorized =
+    (expectedSecret && authHeader === `Bearer ${expectedSecret}`) ||
+    (expectedSecret && querySecret === expectedSecret);
+
+  if (!isAuthorized) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  revalidatePath("/leaflet");
+
+  return NextResponse.json({
+    revalidated: true,
+    timestamp: Date.now(),
+  });
+}
+```
+
+Now the endpoint accepts both Vercel Cron's GET request (with `Authorization` header) and manual POST requests (with either the header or a `?secret=` query param).
+
+### Alternative: GitHub Actions
+
+If you're not on Vercel, or prefer not to use Vercel Cron, you can use a GitHub Actions workflow to hit the revalidation endpoint on a schedule:
+
+```yaml
+# .github/workflows/revalidate-leaflet.yml
+
+name: Revalidate Leaflet Feed
+
+on:
+  schedule:
+    # Every 10 minutes
+    - cron: "*/10 * * * *"
+
+jobs:
+  revalidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger revalidation
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.REVALIDATE_SECRET }}" \
+            "${{ secrets.SITE_URL }}/api/revalidate"
+```
+
+Set `REVALIDATE_SECRET` and `SITE_URL` as repository secrets in your GitHub repo settings.
+
+### How Fast Will New Posts Appear?
+
+| Strategy | Delay | Complexity |
+|----------|-------|------------|
+| ISR only (`revalidate: 300`) | Up to 5 minutes | Zero — built into the fetch calls |
+| ISR + Vercel Cron (every 10 min) | Up to 10 minutes | Low — one config file |
+| ISR + Vercel Cron (every 1 min) | Up to 1 minute | Low — change the schedule |
+| ISR + GitHub Actions (every 10 min) | Up to 10 minutes | Low — one workflow file |
+| Manual revalidation | Instant | Call the endpoint manually after publishing |
+
+For most blogs, ISR with a 5-minute window is sufficient. The cron approach is a good safety net — it ensures the cache is invalidated regularly even if no one visits the page.
+
+## Step 7: Alternative Approach — RSS Feed
+
+Don't want to learn AT Protocol internals? Leaflet publications also expose an RSS feed. Every Leaflet publication has an RSS endpoint at:
+
+```
+https://yourname.leaflet.pub/rss
+```
+
+For example, the Leaflet Lab Notes publication feed is at `https://lab.leaflet.pub/rss`. If you've set up a custom domain, the feed is at `https://yourdomain.com/rss`.
+
+### Parsing the RSS Feed
+
+Install the `rss-parser` package:
+
+```bash
+pnpm add rss-parser
+```
+
+Create a new file at `src/lib/leaflet-rss.ts`:
+
+```typescript
+// src/lib/leaflet-rss.ts
+
+import Parser from "rss-parser";
+
+/** Shape of a parsed RSS feed item. */
+export interface LeafletRSSItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  contentSnippet?: string;
+  categories?: string[];
+  creator?: string;
+}
+
+const parser = new Parser({
+  timeout: 10000,
+  headers: {
+    "User-Agent": "Next.js Leaflet RSS Reader",
+  },
+});
+
+/**
+ * Fetch and parse a Leaflet publication's RSS feed.
+ * No authentication required — RSS is a public endpoint.
+ */
+export async function getLeafletRSSArticles(
+  feedUrl: string,
+  limit = 12,
+): Promise<LeafletRSSItem[]> {
+  const feed = await parser.parseURL(feedUrl);
+
+  return (feed.items || [])
+    .slice(0, limit)
+    .map((item) => ({
+      title: item.title ?? "Untitled",
+      link: item.link ?? "#",
+      pubDate: item.isoDate ?? item.pubDate ?? new Date().toISOString(),
+      contentSnippet: item.contentSnippet?.slice(0, 200),
+      categories: item.categories,
+      creator: item.creator,
+    }))
+    .sort(
+      (a, b) =>
+        new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime(),
+    );
+}
+```
+
+### Building the RSS Component
+
+The RSS approach produces the same UI — just with a different data source. Here's a Server Component that uses the RSS feed instead of the AT Protocol:
+
+```tsx
+// src/app/(marketing)/leaflet-rss/page.tsx
+
+import { Container } from "@/components/ui/container";
+import { generatePageMetadata } from "@/lib/metadata";
+import { getLeafletRSSArticles, type LeafletRSSItem } from "@/lib/leaflet-rss";
+
+export const metadata = generatePageMetadata({
+  title: "Leaflet Articles",
+  description: "Blog articles published on Leaflet.pub, fetched via RSS.",
+  path: "/leaflet-rss",
+});
+
+/** The RSS feed URL for your Leaflet publication. */
+const FEED_URL = "https://lab.leaflet.pub/rss";
+
+/** Maximum number of articles to display. */
+const MAX_ARTICLES = 12;
+
+export default async function LeafletRSSPage() {
+  let articles: LeafletRSSItem[] = [];
+  let error: string | null = null;
+
+  try {
+    articles = await getLeafletRSSArticles(FEED_URL, MAX_ARTICLES);
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Failed to fetch articles";
+  }
+
+  return (
+    <section className="py-20 sm:py-28">
+      <Container>
+        <h1 className="text-3xl font-bold sm:text-4xl">Blog Articles</h1>
+        <p className="mt-4 max-w-2xl text-text-secondary">
+          Articles fetched via RSS from{" "}
+          <a
+            href={FEED_URL}
+            className="text-accent hover:text-accent-hover"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {FEED_URL}
+          </a>
+        </p>
+
+        {error ? (
+          <div className="mt-12 rounded-xl border border-border bg-bg-card p-8 text-center shadow-card">
+            <p className="text-sm text-text-secondary">
+              Could not load articles: {error}
+            </p>
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="mt-12 rounded-xl border border-border bg-bg-card p-8 text-center shadow-card">
+            <p className="text-sm text-text-secondary">No articles found.</p>
+          </div>
+        ) : (
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {articles.map((article) => (
+              <a
+                key={article.link}
+                href={article.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group block h-full focus-visible:outline-none"
+              >
+                <article className="flex h-full flex-col rounded-xl border border-border bg-bg-card p-6 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-border-hover hover:bg-bg-card-hover hover:shadow-card-hover">
+                  <div className="flex flex-1 flex-col gap-4">
+                    <h3 className="text-xl font-semibold tracking-tight text-text-primary transition-colors group-hover:text-accent">
+                      {article.title}
+                    </h3>
+                    {article.contentSnippet && (
+                      <p className="text-sm leading-6 text-text-secondary">
+                        {article.contentSnippet.length > 140
+                          ? `${article.contentSnippet.slice(0, 140).trimEnd()}…`
+                          : article.contentSnippet}
+                      </p>
+                    )}
+                    <div className="mt-auto flex items-center border-t border-border pt-4 text-sm text-text-muted">
+                      <span>
+                        {new Date(article.pubDate).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              </a>
+            ))}
+          </div>
+        )}
+      </Container>
+    </section>
+  );
+}
+```
+
+To add caching to the RSS approach, wrap the `parseURL` call with Next.js's `fetch`-based caching. Since `rss-parser` uses its own HTTP client internally, you can use `revalidate` on the route segment instead:
+
+```typescript
+// Add to the top of the page component file
+export const revalidate = 300; // Revalidate every 5 minutes
+```
+
+This caches the entire page for 5 minutes — same behavior as the ISR approach in the AT Protocol version.
+
+### AT Protocol vs RSS: Which Should You Use?
+
+| Aspect | AT Protocol | RSS |
+|--------|-------------|-----|
+| **Data richness** | Full document records with tags, cover images, text content | Title, link, date, snippet |
+| **No dependencies** | Yes — plain `fetch` | Requires `rss-parser` package |
+| **Caching** | Per-request via `next.revalidate` | Per-page via `export const revalidate` |
+| **Setup complexity** | More code, deeper understanding | Simpler — one function call |
+| **Future-proof** | AT Protocol is the primary data layer | RSS is a secondary export; could change |
+| **Community ecosystem** | Growing — Bluesky/ATProto tools | Mature — any RSS reader works |
+
+**Recommendation**: Start with RSS if you want something working in 10 minutes. Switch to the AT Protocol approach when you need richer data (tags, cover images, full text content) or want to integrate with the broader Bluesky ecosystem.
+
+## Adapting to Your Own Site
+
+The patterns in this tutorial work for any Next.js site. To adapt them:
+
+1. **Change the handle** — set `LEAFLET_HANDLE` to your own Leaflet handle (or any Leaflet user's handle)
+2. **Match your design tokens** — the card classes (`border-border`, `bg-bg-card`, `text-accent`, etc.) use Tailwind CSS variables. Swap them for your own design system's tokens
+3. **Adjust the layout** — the grid uses `sm:grid-cols-2 lg:grid-cols-3`. Change it to a list, a single column, or whatever fits your site
+4. **Add a cover image** — if the document has a `coverImage` blob, you can fetch it from the PDS and display it as a card thumbnail
+5. **Use your own RSS feed** — replace the `FEED_URL` constant with your publication's RSS URL (`https://yourname.leaflet.pub/rss`)
+6. **Adjust the cron schedule** — change the Vercel Cron schedule to match your publishing cadence. If you publish daily, a 30-minute poll is plenty. If you publish multiple times per day, every 5 minutes might be better
+
+## Troubleshooting
+
+### No articles appearing
+
+**AT Protocol approach**: Verify the handle resolves correctly. Open `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=yourhandle.leaflet.pub` in your browser — you should get a JSON response with a `did` field. If you get an error, the handle might be wrong or the user hasn't published any articles yet.
+
+**RSS approach**: Open the feed URL in your browser — you should see XML. If you get a 404, the publication might not have an RSS feed (this happens if no posts have been published yet).
+
+### Articles are stale in production
+
+Make sure you're running `next build && next start` (not `next dev`) to test production caching behavior. In development mode, Next.js fetches on every request.
+
+If you set up on-demand revalidation, verify that:
+- The `REVALIDATE_SECRET` (or `CRON_SECRET`) environment variable is set in production
+- The Vercel Cron job is active (check the Vercel dashboard → Settings → Cron Jobs)
+- The `/api/revalidate` endpoint returns `{ revalidated: true }` when called with the correct secret
+
+### RSS feed URL is wrong
+
+Leaflet RSS feed URLs follow this pattern:
+- **Leaflet subdomain**: `https://yourname.leaflet.pub/rss`
+- **Custom domain**: `https://yourdomain.com/rss`
+
+If you're not sure, visit your publication on Leaflet and look for the RSS icon or link in the page source.
+
+## Why This Matters
+
+The AT Protocol's design means your content is portable. You publish on Leaflet, but the data lives on *your* PDS under *your* DID. This tutorial demonstrates the read side of that equation — pulling your own content from the open social web and rendering it anywhere you want.
+
+No API keys. No rate limit tiers. No proprietary SDK. Just standard HTTP requests against an open protocol, rendered in your own design system. That's the promise of the open social web: your content, your endpoints, your terms.
+
+And with on-demand revalidation, your Next.js site stays in sync with your Leaflet publication automatically. Publish a post on Leaflet → it appears on your site within minutes (or instantly if you trigger revalidation manually). No webhooks to configure, no middleware to maintain — just the open web doing what it does best.
