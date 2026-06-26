@@ -7,6 +7,7 @@ import remarkRehype from "remark-rehype";
 import rehypeSlug from "rehype-slug";
 import rehypeShiki from "@shikijs/rehype";
 import rehypeStringify from "rehype-stringify";
+import { rehypeMermaid } from "./rehype-mermaid";
 
 /**
  * Compile a markdown string into an HTML string.
@@ -27,6 +28,7 @@ export async function renderMarkdown(markdown: string): Promise<string> {
     .use(remarkGfm)
     .use(remarkRehype)
     .use(rehypeSlug)
+    .use(rehypeMermaid as never)
     .use(rehypeShiki, { theme: "github-dark" })
     .use(rehypeStringify)
     .process(markdown);
