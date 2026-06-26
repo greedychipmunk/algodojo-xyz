@@ -6,6 +6,7 @@ import {
   AuthorByline,
   AuthorBio,
 } from "@/components/tutorials/author-byline";
+import { MermaidRenderer } from "@/components/tutorials/mermaid-renderer";
 import { AUTHOR, SITE_METADATA } from "@/lib/constants";
 import { getAllTutorials, getTutorialBySlug } from "@/lib/content";
 import { renderMarkdown } from "@/lib/markdown";
@@ -106,6 +107,8 @@ export default async function TutorialDetailPage({
               <div className="prose mt-12 max-w-none">
                 <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
               </div>
+
+              <MermaidRenderer />
 
               <AuthorBio />
             </div>

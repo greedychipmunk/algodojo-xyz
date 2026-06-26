@@ -36,25 +36,32 @@ So we split responsibilities the same way:
 - **A local Python driver is the hands.** It does web research (fetching pages from the open internet), sends the research to the agent, collects the agent's drafted article, and runs `social-cli publish` to push it to Leaflet.
 - **A content calendar** (a YAML file) sits between them, tracking each topic through the pipeline: `proposed` → `drafted` → `published`.
 
-```text
-                 ┌──────────────────────────────────────────┐
-                 │              Content Calendar            │
-                 │  (calendar.yaml — topics, status, files) │
-                 └──────┬───────────────┬───────────────────┘
-                        │               │
-            ┌───────────▼───┐   ┌───────▼────────┐
-            │  plan mode    │   │ research mode  │
-            │  (driver →    │   │ (driver → web  │
-            │   agent →      │   │  → agent →     │
-            │   calendar)    │   │   calendar)    │
-            └───────────────┘   └────────────────┘
-                                       │
-                              ┌────────▼─────────┐
-                              │  publish mode    │
-                              │  (driver →       │
-                              │   social-cli →   │
-                              │   Leaflet.pub)   │
-                              └──────────────────┘
+```mermaid
+flowchart TD
+    CC["Content Calendar<br/>(calendar.yaml — topics, status, files)"]
+
+    CC --> PLAN
+    CC --> RESEARCH
+    RESEARCH --> PUBLISH
+
+    subgraph PLAN ["plan mode"]
+        direction LR
+        P1["Driver"] --> P2["Agent proposes topics"]
+        P2 --> P3["Calendar updated"]
+    end
+
+    subgraph RESEARCH ["research mode"]
+        direction LR
+        R1["Driver"] --> R2["Web research"]
+        R2 --> R3["Agent writes article"]
+        R3 --> R4["Calendar updated"]
+    end
+
+    subgraph PUBLISH ["publish mode"]
+        direction LR
+        PU1["Driver"] --> PU2["social-cli"]
+        PU2 --> PU3["Leaflet.pub"]
+    end
 ```
 
 Three cron jobs run the three modes on different schedules. The agent never touches the network — it just thinks and writes.
