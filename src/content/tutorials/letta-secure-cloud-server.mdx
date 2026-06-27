@@ -374,8 +374,7 @@ The webhook is now reachable from Telegram's servers, but the Letta API itself r
 Tailscale Serve and Funnel configurations persist across reboots automatically — Tailscale stores the serve config in its state directory. But Docker Compose needs a hand. Create a systemd service to start the Letta stack on boot:
 
 ```bash
-sudo tee /etc/systemd/system/letta.service > /dev/null << 'EOF'
-[Unit]
+echo '[Unit]
 Description=Letta Server (Docker Compose)
 Requires=docker.service
 After=docker.service
@@ -389,8 +388,7 @@ ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=0
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target' | sudo tee /etc/systemd/system/letta.service > /dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable letta
