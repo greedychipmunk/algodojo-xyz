@@ -39,7 +39,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-screen bg-bg-primary font-sans text-text-primary antialiased">
+      <body className="min-h-screen overflow-x-hidden bg-bg-primary font-sans text-text-primary antialiased">
         <Header />
         <main id="main-content">{children}</main>
         <Footer />
