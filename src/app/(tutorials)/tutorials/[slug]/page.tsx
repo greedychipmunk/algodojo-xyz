@@ -88,7 +88,7 @@ export default async function TutorialDetailPage({
       <article className="py-20 sm:py-28">
         <Container>
           <div className="lg:grid lg:grid-cols-[1fr_250px] lg:gap-12">
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap gap-2">
                 <Badge variant={difficultyVariant}>{tutorial.difficulty}</Badge>
                 <Badge>{tutorial.category}</Badge>
@@ -113,7 +113,7 @@ export default async function TutorialDetailPage({
               <AuthorBio />
             </div>
 
-            <aside className="hidden lg:block">
+            <aside className="hidden lg:block min-w-0">
               <div className="sticky top-24">
                 <TableOfContents headings={extractHeadings(contentHtml)} />
               </div>
