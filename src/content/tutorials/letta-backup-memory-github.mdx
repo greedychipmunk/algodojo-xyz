@@ -1,0 +1,449 @@
+---
+title: "Back Up Your Letta Agent Memory to GitHub"
+slug: "letta-backup-memory-github"
+description: "Every conversation, memory block edit, and skill update your Letta agent makes is stored in a git repo under the hood. Learn how to push that repo to GitHub for version control, disaster recovery, and portability across machines."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "memory", "git", "github", "backup", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 16
+publishedAt: "2026-07-02"
+updatedAt: "2026-07-02"
+author: "Algo Dojo"
+---
+
+## What You're Building
+
+A Letta agent's memory is its identity. Every preference you teach it, every skill it learns, every pattern it notices — all of it lives in memory blocks that persist on the Letta server. But what happens when that server goes away? A Docker container is deleted, a VPS is rebuilt, a cloud account is closed. Without a backup, your agent's accumulated knowledge vanishes with the server.
+
+Under the hood, Letta stores agent memory in a **git repository**. When you edit a memory block through the API, Letta commits the change. When you create or delete a block, that's a commit too. The memory is version-controlled by default — you just can't see it unless you know where to look.
+
+In this tutorial you'll:
+
+- **Enable git-backed memory** on your Letta agent so the memory repo is exposed and cloneable.
+- **Clone the memory repo** to your local machine and inspect its structure.
+- **Create a private GitHub repository** to serve as an off-site backup.
+- **Configure a post-commit hook** that pushes every memory change to GitHub automatically.
+- **Restore your agent's memory** on a completely new machine by cloning from GitHub.
+
+If you've worked through [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) or [Securely Run a Letta Server in the Cloud with Tailscale](/tutorials/letta-secure-cloud-server), you already have a Letta server and at least one agent with memory. This tutorial protects that investment.
+
+## What Is Letta Memory?
+
+Letta's memory system is split into two layers:
+
+| Layer | What it is | Where it lives | How it's backed up |
+|-------|-----------|----------------|-------------------|
+| **Memory blocks** | Named, editable chunks of context (persona, human preferences, editorial direction, threat log, etc.) | PostgreSQL on the Letta server | Git repo under `~/.letta/agents/<id>/memory/` |
+| **Message history** | The full conversation stream — every user message, agent response, tool call, and reasoning trace | PostgreSQL on the Letta server | Not in the git repo; server-managed only |
+
+The git repo contains only the **memory blocks** — the editable, versioned context that shapes the agent's behavior. The message history stays on the server. This is a deliberate design choice: memory blocks are the durable identity of the agent, while message history is ephemeral experience that gets compacted and summarized over time.
+
+The git repo lives at a URL like:
+
+```text
+https://letta.tailnet-name.ts.net/v1/git/<agent-id>/state.git
+```
+
+It's a standard git repository. You can clone it, browse it, edit files in it, and push changes back. The Letta server listens for pushes and updates the agent's memory blocks in real time. This is **bidirectional sync**: API edits create git commits, and git pushes update the API.
+
+## Why Back Up to GitHub?
+
+The Letta server's memory repo is a single point of failure. It's stored in a Docker volume or on a VPS disk. If the server dies, the volume is corrupted, or you migrate to a new machine, the repo goes with it.
+
+Pushing the memory repo to GitHub gives you three things:
+
+1. **Disaster recovery.** If the Letta server is lost, you can clone the GitHub repo onto a new server and restore every memory block exactly as it was.
+2. **Version history.** Every memory edit is a commit. You can `git log` to see what changed and when, `git diff` to compare versions, and `git revert` to roll back a bad edit.
+3. **Cross-machine portability.** Work on your laptop, push to GitHub, pull on your VPS. The agent's identity travels with you.
+
+## Prerequisites
+
+1. **A Letta server with at least one agent.** If you don't have one, follow [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) or [Securely Run a Letta Server in the Cloud with Tailscale](/tutorials/letta-secure-cloud-server).
+
+2. **The Letta Code CLI installed.** This is the `letta` command-line tool that manages agent memory. It was installed when you set up Letta Code.
+
+3. **A GitHub account and an SSH key configured.** The backup uses SSH to push to GitHub. Make sure `ssh -T git@github.com` succeeds on the machine where the Letta server runs.
+
+4. **Your Letta API key and agent ID.** You'll need these to configure the backup. The API key was created when you set up Letta Code. The agent ID is visible in the ADE or via the SDK.
+
+## Step 1 — Enable Git-Backed Memory
+
+The Letta Code CLI can automatically enable git-backed memory for an agent. It adds the `git-memory-enabled` tag, clones the repo into your local filesystem, and configures credentials so you can push and pull without manually entering passwords.
+
+Connect to your Letta server and enable memfs for your agent:
+
+```bash
+letta connect --server https://letta.tailnet-name.ts.net \
+  --password your-letta-server-password
+
+letta agents memfs enable <agent-id>
+```
+
+The CLI does several things automatically:
+
+1. Adds the `git-memory-enabled` tag to the agent, which tells the Letta server to expose the memory repo via git.
+2. Clones the repo into `~/.letta/agents/<agent-id>/memory/`.
+3. Configures a local git credential helper so `git push` and `git pull` work without manual auth.
+4. Installs a pre-commit hook that validates frontmatter (every `.md` file must have a `description` field).
+5. Sets the git identity to the agent's ID so commits are attributed to the agent, not your personal git identity.
+
+After enabling, verify the repo exists:
+
+```bash
+ls ~/.letta/agents/<agent-id>/memory/.git
+# Should print: config  description  HEAD  hooks  info  objects  refs
+```
+
+And verify the memory blocks are there:
+
+```bash
+ls ~/.letta/agents/<agent-id>/memory/system/
+# Should show your memory blocks: human.md  persona.md  etc.
+```
+
+## Step 2 — Inspect Your Memory Repo
+
+Before setting up the backup, understand what you're backing up. The memory repo has this structure:
+
+```text
+~/.letta/agents/<agent-id>/memory/
+├── .git/                          # Git repo internals
+└── system/                        # System memory blocks
+    ├── human.md                   # Your preferences and context
+    ├── persona.md                 # The agent's personality
+    └── editorial-direction.md     # Other blocks you've created
+```
+
+Each `.md` file is a memory block. It has YAML frontmatter and markdown content:
+
+```bash
+cat ~/.letta/agents/<agent-id>/memory/system/human.md
+```
+
+```markdown
+---
+description: Human preferences and context
+---
+
+The user prefers dark mode. They work in Python and TypeScript.
+They run a homelab with Tailscale and value automation over manual processes.
+```
+
+The frontmatter is required. The `description` field tells the agent what this block contains. The content after the frontmatter is the actual memory text that gets injected into the agent's system prompt.
+
+Try editing a file directly:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+
+# Add a line to the human block
+echo "The user also enjoys hiking on weekends." >> system/human.md
+
+# Commit and push
+git add system/human.md
+git commit -m "feat: add weekend hobby to human block"
+git push
+```
+
+Within 2–3 seconds, the Letta server receives the push via webhook and updates the agent's memory. You can verify this by sending a message to the agent — it should now know about your weekend hobby.
+
+This bidirectional flow is the core of the backup system. Every API edit becomes a git commit, and every git push becomes an API update.
+
+## Step 3 — Create a GitHub Backup Repository
+
+Create a private repository on GitHub to hold the backup. It should be private — your agent's memory may contain personal preferences, project details, and other sensitive context.
+
+1. Go to [github.com/new](https://github.com/new).
+2. Name it something like `my-letta-memory`.
+3. Set it to **Private**.
+4. Do **not** initialize it with a README, .gitignore, or license. You want an empty repo so the Letta memory repo can push to it cleanly.
+5. Click **Create repository**.
+
+Copy the SSH URL. It looks like:
+
+```text
+git@github.com:yourusername/my-letta-memory.git
+```
+
+## Step 4 — Configure the Backup Remote
+
+The Letta Code CLI provides a slash command to configure the additional remote:
+
+```bash
+letta /memory-repository set git@github.com:yourusername/my-letta-memory.git
+```
+
+This command:
+
+1. Stores the GitHub URL in the memory repo's local git config.
+2. Installs a post-commit hook that pushes to GitHub after every commit.
+3. The push happens asynchronously — it doesn't block your commits.
+
+Verify the configuration:
+
+```bash
+letta /memory-repository status
+```
+
+You should see output like:
+
+```text
+Memory repository: git@github.com:yourusername/my-letta-memory.git
+Last push: not yet pushed
+```
+
+### Manual equivalent (without the slash command)
+
+If you prefer to configure it manually:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+git config --local letta.memoryRepository.url git@github.com:yourusername/my-letta-memory.git
+```
+
+The Letta Code CLI installs the post-commit hook automatically on startup, so no manual hook installation is needed.
+
+## Step 5 — Verify the Backup Works
+
+Trigger a memory change and watch it propagate to GitHub.
+
+First, make an edit through the API to ensure the git-memory sync is working:
+
+```python
+from letta_client import Letta
+import os
+
+client = Letta(
+    base_url="https://letta.tailnet-name.ts.net",
+    token=os.environ["LETTA_SERVER_PASSWORD"],
+)
+
+# Update a memory block via API
+client.agents.modify(
+    agent_id="<agent-id>",
+    memory_blocks=[
+        {
+            "label": "human",
+            "value": "The user just completed a backup tutorial. They now understand how Letta memory syncs to git.",
+            "limit": 5000,
+        }
+    ],
+)
+```
+
+Now check the local repo for the new commit:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+git log --oneline -3
+```
+
+You should see a commit with a message like `feat: update human block` or similar (the exact message depends on how Letta formats API edits). This commit was created automatically by the Letta server.
+
+Wait a few seconds for the post-commit hook to push to GitHub, then verify on GitHub:
+
+```bash
+letta /memory-repository status
+```
+
+You should see:
+
+```text
+Memory repository: git@github.com:yourusername/my-letta-memory.git
+Last push: succeeded
+```
+
+Or check directly on GitHub — navigate to your repo and confirm the `system/` directory and its `.md` files are there.
+
+## Step 6 — Restore Memory on a New Machine
+
+The real test of a backup is restoring from it. Here's how to move your agent's memory to a completely new machine.
+
+### On the new machine
+
+1. **Install the Letta Code CLI** and authenticate with your Letta server (or set up a new one).
+
+2. **Enable memfs for the agent** (even if it's a new agent with the same ID, or a fresh agent you want to populate with the old memory):
+
+```bash
+letta agents memfs enable <agent-id>
+```
+
+3. **Add the GitHub repo as a remote and pull:**
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+
+# Add GitHub as a remote
+git remote add github git@github.com:yourusername/my-letta-memory.git
+
+# Pull the backup
+git pull github main
+```
+
+4. **Push to the Letta server** so the API reflects the restored memory:
+
+```bash
+git push origin main
+```
+
+The Letta server receives the push, reads the memory blocks from the git repo, and updates the agent's in-memory state. Within a few seconds, the agent is fully restored with all its previous memory.
+
+### Alternative: Clone directly from GitHub
+
+If you don't have the Letta server URL handy, you can clone the memory repo directly from GitHub:
+
+```bash
+git clone git@github.com:yourusername/my-letta-memory.git ~/restored-memory
+cd ~/restored-memory
+
+# Inspect the blocks
+ls system/
+cat system/human.md
+cat system/persona.md
+```
+
+This gives you a browsable copy of the agent's memory without even needing the Letta server running. You can read the blocks, edit them, and push changes back. When you do connect to a Letta server, push the repo and the agent will absorb the restored memory.
+
+## Step 7 — Commit Discipline
+
+The Letta server auto-commits API edits, but those commits have machine-generated messages like `update human block`. For commits you make manually through git, use descriptive messages — you'll thank yourself later when reading `git log`.
+
+Good commit messages for memory edits:
+
+```bash
+git commit -m "feat: add SSH key path to homelab security baseline"
+git commit -m "fix: correct the user's company name in human block"
+git commit -m "chore: remove outdated project reference from persona"
+```
+
+The pre-commit hook validates that every `.md` file has valid frontmatter with a `description` field. If you try to commit a file without frontmatter, the hook rejects it with a clear error message. Fix the file and retry.
+
+If you make a bad edit and want to undo it, use standard git commands:
+
+```bash
+# See what changed
+git diff HEAD~1
+
+# Revert the last commit
+git revert HEAD
+
+# Or reset to a specific commit
+git reset --hard <commit-hash>
+git push --force-with-lease
+```
+
+> **Warning:** `git reset --hard` followed by `git push --force` overwrites the server's memory. Use it when you're sure the old version was better. The Letta server respects git as the source of truth.
+
+## Troubleshooting
+
+### The git repo doesn't exist after enabling memfs
+
+If `~/.letta/agents/<agent-id>/memory/.git` is missing, the memfs enable step failed. Check:
+
+1. Does the agent have the `git-memory-enabled` tag?
+   ```bash
+   curl -s https://letta.tailnet-name.ts.net/v1/agents/<agent-id> \
+     -H "Authorization: Bearer $LETTA_API_KEY" | python3 -m json.tool | grep tags
+   ```
+2. Is the Letta server reachable? `curl -I https://letta.tailnet-name.ts.net` should return 200.
+3. Try re-running `letta agents memfs enable <agent-id>`.
+
+### Push to GitHub fails with "Permission denied"
+
+The backup remote uses SSH. Verify your SSH key is configured:
+
+```bash
+ssh -T git@github.com
+# Should print: Hi username! You've successfully authenticated...
+```
+
+If that fails, add your SSH key to GitHub:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+# Copy the output and paste it at https://github.com/settings/keys
+```
+
+### The post-commit hook doesn't push
+
+Check the hook's log:
+
+```bash
+cat ~/.letta/agents/<agent-id>/memory/.git/memory-repository-push.log
+```
+
+If the log doesn't exist, the hook wasn't installed. Re-enable memfs:
+
+```bash
+letta agents memfs enable <agent-id>
+```
+
+### API changes don't appear in git
+
+Wait 2–3 seconds for webhook processing, then pull:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+git pull
+```
+
+If changes still don't appear, verify the agent has the `git-memory-enabled` tag.
+
+### Git pull creates merge conflicts
+
+This happens when you've edited memory locally and the API has also made changes. Resolve it like any git conflict:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+git pull --no-rebase
+# -> CONFLICT in system/human.md
+
+# View conflict markers
+cat system/human.md
+
+# Resolve: edit the file to keep what you want
+# Then commit the resolution
+git add system/human.md
+git commit -m "fix: resolved conflict in human block"
+git push
+```
+
+### I accidentally deleted a memory block
+
+If you `git rm system/persona.md` and pushed, the block is detached from the agent. To restore it from GitHub:
+
+```bash
+cd ~/.letta/agents/<agent-id>/memory
+
+# Find the last commit that had the block
+git log --oneline -- system/persona.md
+
+# Restore it from that commit
+git checkout <commit-hash> -- system/persona.md
+git commit -m "fix: restored persona block from backup"
+git push
+```
+
+The block will be re-attached to the agent within seconds.
+
+## Why This Matters
+
+A Letta agent without a memory backup is like a developer who never commits to git. The work is real, the progress is genuine, and the loss is catastrophic when the environment disappears. Every preference you've taught, every correction you've made, every pattern the agent has learned — all of it is encoded in those `.md` files under `memory/system/`.
+
+The git-backed memory system turns what would be a fragile server-side database into a portable, version-controlled, human-readable artifact. You can:
+
+- **Read your agent's mind.** Open `system/human.md` and see exactly what the agent knows about you.
+- **Edit memory in your editor.** Use Vim, VS Code, or any tool you like. The pre-commit hook catches formatting errors.
+- **Collaborate.** Share the GitHub repo with a teammate. They can pull, edit, and push memory blocks just like code.
+- **Audit.** `git log --since="last month"` shows every memory change. You can see when the agent learned something new, when a preference was updated, and when a block was removed.
+
+If you want to go further:
+
+- **Set up a CI pipeline** on the GitHub repo that validates memory block syntax, checks for sensitive data leaks, or runs automated tests against the agent's behavior after memory changes.
+- **Use GitHub Issues** to track memory block proposals. Open an issue like "Add weekend hobby to human block," discuss it, then implement via PR.
+- **Branch and experiment.** Create a branch with a new persona, test the agent's behavior, and merge only if it works better. This is A/B testing for agent personality.
+- **Archive old agents.** When you retire an agent, its memory lives on in the GitHub repo. You can clone it years later and resurrect the agent exactly as it was.
+
+Your agent's memory is its most valuable asset. Back it up.
