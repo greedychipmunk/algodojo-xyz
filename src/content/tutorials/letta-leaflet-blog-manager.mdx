@@ -209,7 +209,7 @@ python-dotenv
 Then install (a virtual environment is recommended):
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -316,7 +316,7 @@ print("Add this to your .env as BLOG_AGENT_ID")
 Run it once:
 
 ```bash
-python create_agent.py
+python3 create_agent.py
 ```
 
 Copy the printed agent ID into your `.env`:
@@ -750,9 +750,9 @@ With the Letta server up and `.env` filled in, activate your virtual environment
 
 ```bash
 source .venv/bin/activate
-python graph.py plan       # agent proposes topics, then researches + publishes the first one
-python graph.py research   # research + draft the next proposed topic, then publish it
-python graph.py publish    # publish the next draft to Leaflet
+python3 graph.py plan       # agent proposes topics, then researches + publishes the first one
+python3 graph.py research   # research + draft the next proposed topic, then publish it
+python3 graph.py publish    # publish the next draft to Leaflet
 ```
 
 Watch the output. On `plan`, you'll see "Proposed: ..." for each topic, then "Researching: ..." and "Drafted: ... → content/posts/...", then "Publishing: ..." and "Published: ...". The graph flows through all three nodes in a single run.
