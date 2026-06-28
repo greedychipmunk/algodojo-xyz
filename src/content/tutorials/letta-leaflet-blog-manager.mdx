@@ -38,15 +38,15 @@ So we split responsibilities three ways:
 
 ```mermaid
 flowchart TD
-    CC["Content Calendar<br/>(calendar.yaml)"]
+    START(["Start: load calendar.yaml"]) --> ROUTER["Router<br/>(selects mode)"]
 
-    CC --> ROUTER
     ROUTER --> PLAN
     ROUTER --> RESEARCH
     ROUTER --> PUBLISH
+
     PLAN --> RESEARCH
     RESEARCH --> PUBLISH
-    PUBLISH --> CC
+    PUBLISH --> DONE(["End: save calendar.yaml"])
 
     subgraph PLAN ["Plan"]
         P1["Letta Agent<br/>proposes topics"]
