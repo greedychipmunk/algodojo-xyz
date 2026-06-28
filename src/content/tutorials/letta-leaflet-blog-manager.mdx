@@ -746,9 +746,10 @@ A few things worth calling out:
 
 ## Step 11 — Run It
 
-With the Letta server up and `.env` filled in, try each mode by hand:
+With the Letta server up and `.env` filled in, activate your virtual environment and try each mode by hand:
 
 ```bash
+source .venv/bin/activate
 python graph.py plan       # agent proposes topics, then researches + publishes the first one
 python graph.py research   # research + draft the next proposed topic, then publish it
 python graph.py publish    # publish the next draft to Leaflet
@@ -802,6 +803,8 @@ Because every cron run talks to the *same* Letta agent, the manager keeps a sing
 **Articles are too short or too long.** The blog-manager skill specifies 800-1500 words, but LLMs don't count words precisely. If the output is consistently off, adjust the range in the skill's `SKILL.md` file and re-install it — the agent reads the skill from its memory block before every response.
 
 **The agent doesn't output JSON blocks.** Make sure the skill was loaded into the `blog_workflow` memory block during Step 8. Re-run `create_agent.py` and check that the skill file exists at `~/.letta/skills/blog-manager/SKILL.md`. The agent needs the skill's instructions in its context to know the output format.
+
+**`ModuleNotFoundError: No module named 'yaml'`.** The `pyyaml` package is listed in `requirements.txt` but isn't installed in your current environment. Activate your virtual environment (`source .venv/bin/activate`) and re-run `pip install -r requirements.txt`. If you're not using a venv, install it directly with `pip install pyyaml`.
 
 **`ImportError: No module named 'langgraph'`.** Make sure you activated your virtual environment (`source .venv/bin/activate`) before installing requirements and running the pipeline. LangGraph also depends on `langchain-core`, which `pip install langgraph` pulls in automatically.
 
