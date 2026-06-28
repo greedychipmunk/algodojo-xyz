@@ -38,6 +38,11 @@ export default function RootLayout({
             __html: organizationJsonLd(),
           }}
         />
+        <script
+          defer
+          src="https://analytics.algodojo.xyz/script.js"
+          data-website-id="a8a2b1fc-5074-4bc1-bb69-499ef68d3caa"
+        />
       </head>
       <body className="min-h-screen overflow-x-hidden bg-bg-primary font-sans text-text-primary antialiased">
         <Header />
