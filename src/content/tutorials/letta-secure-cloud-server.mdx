@@ -46,7 +46,7 @@ The trade-off with Hetzner is that you manage everything yourself: the OS, Docke
 
 Without Tailscale, a self-hosted Letta server on a VPS needs to be exposed on a public port to be reachable. That means a reverse proxy (Caddy, Traefik, or nginx), a TLS certificate (Let's Encrypt), a firewall (UFW), and ideally fail2ban for brute-force protection. Each of those is a configuration file you can get wrong, and each one is a maintenance burden that compounds over time.
 
-Tailscale replaces all of that with a single WireGuard mesh. Install the Tailscale client on your VPS and on every device you want to reach it from. The VPS gets a stable IP in the `100.x.x.x` range and a hostname like `letta.pango-lin.ts.net`. Traffic between your devices and the server is end-to-end encrypted. No ports are opened on the VPS. No certificates to manage. No reverse proxy to configure.
+Tailscale replaces all of that with a single WireGuard mesh. Install the Tailscale client on your VPS and on every device you want to reach it from. The VPS gets a stable IP in the `100.x.x.x` range and a domain like `ubuntu-24-04.pango-lin.ts.net`. Traffic between your devices and the server is end-to-end encrypted. No ports are opened on the VPS. No certificates to manage. No reverse proxy to configure.
 
 For the cases where you *do* need public access — a Telegram webhook, for example — Tailscale Funnel opens a single HTTPS endpoint that proxies to your local service, with automatic TLS certificate management. You get public reachability without exposing the Letta server's API directly.
 
@@ -149,54 +149,36 @@ Install the Tailscale client on the VPS:
 curl -fsSL https://tailscale.com/install.sh | sh
 ```
 
-Authenticate the node to your tailnet, explicitly naming it `letta` so the URL is predictable:
+Authenticate the node to your tailnet:
 
 ```bash
-sudo tailscale up --hostname letta --accept-dns
+sudo tailscale up
 ```
 
 This prints a URL. Open it in your browser, approve the device, and the VPS joins your tailnet.
 
-Once connected, the VPS gets:
+Once connected, the VPS gets a stable Tailscale IP (in the `100.x.x.x` range) and a **machine name** derived from its OS hostname. Every device on your tailnet also gets a **tailnet name** — a unique domain assigned by Tailscale, visible in your admin console under **DNS** → **Nameservers**. It looks like `pango-lin.ts.net` or `tailnet-fe8c.ts.net`.
 
-- A stable Tailscale IP in the `100.x.x.x` range.
-- A **machine name** of `letta` (set by `--hostname`).
-- A **tailnet name** assigned by Tailscale, visible in your admin console under **DNS** → **Nameservers**. It looks like `pango-lin.ts.net` or `tailnet-fe8c.ts.net`.
-
-The combination forms your unique Tailscale URL:
+The combination forms your Tailscale URL:
 
 ```text
 https://<machine-name>.<tailnet-name>.ts.net
 ```
 
-So if your tailnet is `pango-lin.ts.net` and your machine is `letta`, your URL is:
-
-```text
-https://letta.pango-lin.ts.net
-```
-
-Verify the machine name and find your tailnet name:
+Find your exact domain with:
 
 ```bash
 tailscale status --json --peers=false | jq -r '.Self.DNSName'
-# Output: letta.pango-lin.ts.net.
+# Output: ubuntu-24-04.pango-lin.ts.net.
 ```
 
-The output confirms the full domain. The trailing dot is normal for DNS names — drop it when typing the URL in a browser.
+The trailing dot is normal for DNS names — drop it when typing the URL in a browser. Throughout this tutorial, we'll refer to your Tailscale base URL as `https://<machine>.<tailnet>.ts.net`. Substitute your actual domain from the command above.
 
-Check the status:
-
-```bash
-tailscale status
-```
-
-You should see the VPS listed as connected with the machine name `letta`. Now install Tailscale on your laptop, phone, or any other device you want to reach the Letta server from. All of them join the same tailnet and can reach the VPS over the encrypted WireGuard tunnel.
+Now install Tailscale on your laptop, phone, or any other device you want to reach the Letta server from. All of them join the same tailnet and can reach the VPS over the encrypted WireGuard tunnel.
 
 ### Enable HTTPS for Tailscale Serve
 
 Tailscale Serve needs HTTPS enabled in your tailnet to provision TLS certificates for your `.ts.net` domain. If you haven't enabled it yet, the `tailscale serve` command will prompt you to do so interactively when you first run it. You can also enable it from the Tailscale admin console under **DNS** → **HTTPS Certificates**.
-
-> **Why this matters:** Without HTTPS enabled, Tailscale cannot issue a certificate for `https://letta.<your-tailnet>.ts.net`. The `tailscale serve` command will walk you through enabling it on first use.
 
 ## Install Docker
 
@@ -297,18 +279,24 @@ curl http://localhost:8283/v1/health
 
 ## Expose Letta Through Tailscale Serve
 
-Now that Letta is running on `localhost:8283` inside the VPS, use Tailscale Serve to proxy it to your tailnet over HTTPS. The `--bg` flag makes it persistent — it survives reboots and doesn't stop when you close the terminal:
+Now that Letta is running on `localhost:8283` inside the VPS, use Tailscale Serve to proxy it to your tailnet over HTTPS. The `--bg` flag makes it persistent — it survives reboots and doesn't stop when you close the terminal. The `--set-path=/letta` flag mounts Letta at a subpath so other services can share the same machine:
 
 ```bash
-sudo tailscale serve --bg --https=443 http://localhost:8283
+sudo tailscale serve --bg --set-path=/letta --https=443 http://localhost:8283
 ```
 
 This tells Tailscale to:
 
 1. Listen on port 443 (HTTPS) on the VPS's Tailscale interface.
-2. Proxy all requests to `http://localhost:8283` where Letta is listening.
-3. Automatically provision a TLS certificate from Let's Encrypt for `https://letta.<your-tailnet>.ts.net`.
+2. Proxy requests to `/letta` to `http://localhost:8283` where Letta is listening.
+3. Automatically provision a TLS certificate from Let's Encrypt for your Tailscale domain.
 4. Run in the background (`--bg`) so the serve configuration persists across reboots.
+
+Because you used `--set-path=/letta`, other services can share the same machine — for example, a blog at `/blog` or a metrics dashboard at `/metrics`:
+
+```bash
+sudo tailscale serve --bg --set-path=/blog --https=443 http://localhost:3000
+```
 
 Verify the serve status:
 
@@ -320,68 +308,49 @@ You should see output like:
 
 ```text
 Available within your tailnet:
-https://letta.pango-lin.ts.net
+https://ubuntu-24-04.pango-lin.ts.net
 
-|-- / proxy http://127.0.0.1:8283
+|-- /letta proxy http://127.0.0.1:8283
 
 Serve started and running in the background.
-To disable the proxy, run: tailscale serve --https=443 off
+To disable the proxy, run: tailscale serve --https=443 --set-path=/letta off
 ```
-
-> **Note:** Replace `pango-lin` with your actual tailnet name. Find it with:
-> ```bash
-> tailscale status --json --peers=false | jq -r '.Self.DNSName'
-> ```
 
 Now, from any device on your tailnet — your laptop, your phone, your iPad — open a browser and navigate to:
 
 ```
-https://letta.<your-tailnet>.ts.net
-```
-
-For example, if your tailnet is `pango-lin.ts.net`, the URL is:
-
-```
-https://letta.pango-lin.ts.net
+https://<machine>.<tailnet>.ts.net/letta
 ```
 
 You'll see the Letta ADE (Agent Development Environment) load over HTTPS, with a valid certificate, through an encrypted WireGuard tunnel. No ports were opened on the VPS. No reverse proxy was configured. No certificate was manually managed.
 
 ### Connect the ADE to your server
 
-The Letta ADE at [app.letta.com](https://app.letta.com) can connect to self-hosted servers. Since your server is now reachable over HTTPS at `https://letta.<your-tailnet>.ts.net`, you can add it as a remote server:
+The Letta ADE at [app.letta.com](https://app.letta.com) can connect to self-hosted servers. Since your server is now reachable over HTTPS, you can add it as a remote server:
 
 1. Open [app.letta.com](https://app.letta.com)
 2. Click **Add remote server**
 3. Enter the server name (e.g., "Hetzner VPS")
-4. Enter the URL (replace `<your-tailnet>` with your actual tailnet name):
+4. Enter the URL:
    ```
-   https://letta.<your-tailnet>.ts.net
+   https://<machine>.<tailnet>.ts.net/letta
    ```
-   For example: `https://letta.pango-lin.ts.net`
 5. Enter the password you set in `LETTA_SERVER_PASSWORD`
 
 The ADE connects to your self-hosted server over the Tailscale tunnel. You can create agents, manage memory blocks, and send messages — all through the encrypted private network.
 
 ## Connect from the Python SDK
 
-Your Python scripts can connect to the server the same way. Point the `Letta` client at your Tailscale URL:
+Your Python scripts can connect to the server the same way. Point the `Letta` client at your Tailscale URL with the `/letta` path:
 
 ```python
 # cloud_agent.py
 from letta_client import Letta
 
-# Replace <your-tailnet> with your actual tailnet name, e.g., pango-lin
 client = Letta(
-    base_url="https://letta.<your-tailnet>.ts.net",
+    base_url="https://<machine>.<tailnet>.ts.net/letta",
     token="generate-a-strong-random-password-here",  # the LETTA_SERVER_PASSWORD
 )
-
-# Example for tailnet pango-lin.ts.net:
-# client = Letta(
-#     base_url="https://letta.pango-lin.ts.net",
-#     token="generate-a-strong-random-password-here",
-# )
 
 agent = client.agents.create(
     model="openai/gpt-4o-mini",
@@ -409,18 +378,18 @@ Most of the time, private tailnet access is exactly what you want — your agent
 Tailscale Funnel opens a single public HTTPS endpoint that proxies to your local service. It's the same mechanism as Serve, but the URL is reachable from the open internet:
 
 ```bash
-sudo tailscale funnel --bg --https=443 http://localhost:8283
+sudo tailscale funnel --bg --set-path=/letta --https=443 http://localhost:8283
 ```
 
-Now `https://letta.<your-tailnet>.ts.net` is reachable from anywhere — not just your tailnet. Tailscale manages the TLS certificate automatically. Access is still governed by your tailnet's ACLs, so you can restrict which identities can reach the Funnel endpoint.
+Now `https://<machine>.<tailnet>.ts.net/letta` is reachable from anywhere — not just your tailnet. Tailscale manages the TLS certificate automatically. Access is still governed by your tailnet's ACLs, so you can restrict which identities can reach the Funnel endpoint.
 
 > **Funnel vs. Serve:** `serve` makes the endpoint private (tailnet only); `funnel` makes it public. You can't have both on the same port simultaneously.
 
 To switch back to tailnet-only access:
 
 ```bash
-sudo tailscale funnel --https=443 off
-sudo tailscale serve --bg --https=443 http://localhost:8283
+sudo tailscale funnel --https=443 --set-path=/letta off
+sudo tailscale serve --bg --set-path=/letta --https=443 http://localhost:8283
 ```
 
 ### Using Funnel for a Telegram webhook
@@ -430,15 +399,7 @@ If you followed [Talk to Letta Agents via Telegram](/tutorials/letta-telegram-bo
 ```python
 # In bot.py, set the webhook to the Funnel URL
 await application.bot.set_webhook(
-    url="https://letta.<your-tailnet>.ts.net/webhook/telegram"
-)
-```
-
-For example, if your tailnet is `pango-lin.ts.net`:
-
-```python
-await application.bot.set_webhook(
-    url="https://letta.pango-lin.ts.net/webhook/telegram"
+    url="https://<machine>.<tailnet>.ts.net/letta/webhook/telegram"
 )
 ```
 
