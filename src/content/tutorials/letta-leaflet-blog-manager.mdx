@@ -38,27 +38,24 @@ So we split responsibilities the same way:
 
 ```mermaid
 flowchart TD
-    CC["Content Calendar<br/>(calendar.yaml — topics, status, files)"]
+    CC["Content Calendar<br/>(calendar.yaml)"]
 
     CC --> PLAN
     CC --> RESEARCH
     RESEARCH --> PUBLISH
 
-    subgraph PLAN ["plan mode"]
-        direction LR
-        P1["Driver"] --> P2["Agent proposes topics"]
-        P2 --> P3["Calendar updated"]
+    subgraph PLAN ["Plan"]
+        P1["Driver"] --> P2["Agent proposes<br/>topics"]
+        P2 --> P3["Calendar<br/>updated"]
     end
 
-    subgraph RESEARCH ["research mode"]
-        direction LR
-        R1["Driver"] --> R2["Web research"]
-        R2 --> R3["Agent writes article"]
-        R3 --> R4["Calendar updated"]
+    subgraph RESEARCH ["Research"]
+        R1["Driver"] --> R2["Web<br/>research"]
+        R2 --> R3["Agent writes<br/>article"]
+        R3 --> R4["Calendar<br/>updated"]
     end
 
-    subgraph PUBLISH ["publish mode"]
-        direction LR
+    subgraph PUBLISH ["Publish"]
         PU1["Driver"] --> PU2["social-cli"]
         PU2 --> PU3["Leaflet.pub"]
     end
