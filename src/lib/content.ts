@@ -3,10 +3,9 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import type { BlogPost, Tutorial } from "@/lib/types";
+import type { Tutorial } from "@/lib/types";
 
 const TUTORIALS_DIRECTORY = path.join(process.cwd(), "src/content/tutorials");
-const BLOG_DIRECTORY = path.join(process.cwd(), "src/content/blog");
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -119,41 +118,6 @@ function parseTutorial(filePath: string): Tutorial | null {
   };
 }
 
-function parseBlogPost(filePath: string): BlogPost | null {
-  const slugFromFileName = path.basename(filePath, ".mdx");
-  const { data, content } = readMdxFile(filePath);
-  const frontmatter = data as Record<string, unknown>;
-
-  const title = isString(frontmatter.title) ? frontmatter.title : null;
-  const slug = isString(frontmatter.slug) ? frontmatter.slug : slugFromFileName;
-  const description = isString(frontmatter.description)
-    ? frontmatter.description
-    : null;
-  const publishedAt = isString(frontmatter.publishedAt)
-    ? frontmatter.publishedAt
-    : null;
-  const updatedAt = isString(frontmatter.updatedAt)
-    ? frontmatter.updatedAt
-    : null;
-  const author = isString(frontmatter.author) ? frontmatter.author : null;
-  const tags = isStringArray(frontmatter.tags) ? frontmatter.tags : null;
-
-  if (!title || !slug || !description || !publishedAt || !updatedAt || !author || !tags) {
-    return null;
-  }
-
-  return {
-    title,
-    slug,
-    description,
-    tags,
-    publishedAt,
-    updatedAt,
-    author,
-    content,
-  };
-}
-
 export function getAllTutorials(): Tutorial[] {
   return getMdxFiles(TUTORIALS_DIRECTORY)
     .map((fileName) => parseTutorial(path.join(TUTORIALS_DIRECTORY, fileName)))
@@ -166,18 +130,4 @@ export function getAllTutorials(): Tutorial[] {
 
 export function getTutorialBySlug(slug: string): Tutorial | null {
   return getAllTutorials().find((tutorial) => tutorial.slug === slug) ?? null;
-}
-
-export function getAllBlogPosts(): BlogPost[] {
-  return getMdxFiles(BLOG_DIRECTORY)
-    .map((fileName) => parseBlogPost(path.join(BLOG_DIRECTORY, fileName)))
-    .filter((blogPost): blogPost is BlogPost => blogPost !== null)
-    .sort(
-      (left, right) =>
-        new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
-    );
-}
-
-export function getBlogPostBySlug(slug: string): BlogPost | null {
-  return getAllBlogPosts().find((blogPost) => blogPost.slug === slug) ?? null;
 }
