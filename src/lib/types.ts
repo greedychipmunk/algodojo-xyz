@@ -13,17 +13,6 @@ export interface Tutorial {
   content: string;
 }
 
-export interface BlogPost {
-  title: string;
-  slug: string;
-  description: string;
-  tags: string[];
-  publishedAt: string;
-  updatedAt: string;
-  author: string;
-  content: string;
-}
-
 export interface Service {
   title: string;
   description: string;

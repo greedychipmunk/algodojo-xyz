@@ -1,10 +1,11 @@
 import type { MetadataRoute } from "next";
-import { getAllTutorials, getAllBlogPosts } from "@/lib/content";
+import { getAllTutorials } from "@/lib/content";
+import { listPosts } from "@/lib/blog";
 import { SITE_METADATA } from "@/lib/constants";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const tutorials = await getAllTutorials();
-  const blogPosts = await getAllBlogPosts();
+  const blogPosts = await listPosts();
 
   const staticPages: MetadataRoute.Sitemap = [
     {
@@ -72,7 +73,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const blogPages: MetadataRoute.Sitemap = blogPosts.map((p) => ({
     url: `${SITE_METADATA.siteUrl}/blog/${p.slug}`,
-    lastModified: new Date(p.updatedAt),
+    lastModified: new Date(p.updatedAt ?? p.publishedAt),
     changeFrequency: "monthly" as const,
     priority: 0.7,
   }));
