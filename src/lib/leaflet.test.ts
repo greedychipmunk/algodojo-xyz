@@ -3,14 +3,66 @@ import {
   dedupeBySlug,
   flattenBlocks,
   isPublishable,
+  parseCodeBlock,
   safeHref,
   segmentText,
   slugOf,
   sortPosts,
   toPost,
+  type LeafletBlock,
   type Post,
   type RepoRecord,
 } from "./leaflet";
+
+describe("parseCodeBlock", () => {
+  const codeFacet = (byteStart: number, byteEnd: number) => ({
+    index: { byteStart, byteEnd },
+    features: [{ $type: "pub.leaflet.richtext.facet#code" }],
+  });
+
+  test("recovers and pretty-prints a collapsed JSON fenced block", () => {
+    // The exact shape blog-manager produced: a one-line ``json { … } `` block
+    // with literal fence backticks and a #code facet over the interior.
+    const plaintext =
+      '``json { "agent_loop": [ {"step": "plan"} ] } ``';
+    const block: LeafletBlock = {
+      $type: "pub.leaflet.blocks.text",
+      plaintext,
+      facets: [codeFacet(2, plaintext.length - 2)],
+    };
+    const result = parseCodeBlock(block);
+    expect(result).not.toBeNull();
+    expect(result?.lang).toBe("json");
+    expect(result?.code).toBe(
+      '{\n  "agent_loop": [\n    {\n      "step": "plan"\n    }\n  ]\n}',
+    );
+  });
+
+  test("keeps a non-JSON fenced block verbatim with its language", () => {
+    const plaintext = "``python print('hi') ``";
+    const block: LeafletBlock = {
+      $type: "pub.leaflet.blocks.text",
+      plaintext,
+      facets: [codeFacet(2, plaintext.length - 2)],
+    };
+    expect(parseCodeBlock(block)).toEqual({ code: "print('hi')", lang: "python" });
+  });
+
+  test("returns null for an inline code facet (no fence) so it stays inline", () => {
+    const block: LeafletBlock = {
+      $type: "pub.leaflet.blocks.text",
+      plaintext: "use the foo helper",
+      facets: [codeFacet(8, 11)],
+    };
+    expect(parseCodeBlock(block)).toBeNull();
+  });
+
+  test("returns null for prose without a code facet", () => {
+    expect(
+      parseCodeBlock({ $type: "pub.leaflet.blocks.text", plaintext: "just text" }),
+    ).toBeNull();
+  });
+});
 
 describe("safeHref", () => {
   test("allows http(s), mailto, and relative/anchor links", () => {

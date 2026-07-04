@@ -1,5 +1,6 @@
 import {
   flattenBlocks,
+  parseCodeBlock,
   type LeafletBlock,
   type LeafletContent as LeafletContentValue,
 } from "@/lib/leaflet";
@@ -18,13 +19,26 @@ function Block({ block }: { block: LeafletBlock }) {
       const Heading = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
       return <Heading>{block.plaintext}</Heading>;
     }
-    case "pub.leaflet.blocks.text":
+    case "pub.leaflet.blocks.text": {
       if (!block.plaintext) return null;
+      const codeBlock = parseCodeBlock(block);
+      if (codeBlock) {
+        return (
+          <pre>
+            <code
+              className={codeBlock.lang ? `language-${codeBlock.lang}` : undefined}
+            >
+              {codeBlock.code}
+            </code>
+          </pre>
+        );
+      }
       return (
         <p>
           <RichText text={block.plaintext} facets={block.facets} />
         </p>
       );
+    }
     default:
       return block.plaintext ? <p>{block.plaintext}</p> : null;
   }
