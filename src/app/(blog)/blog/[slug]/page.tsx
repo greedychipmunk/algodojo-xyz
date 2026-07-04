@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
-import { LeafletContent } from "@/components/blog/leaflet-content";
 import { Container } from "@/components/ui/container";
 import { getPostBySlug, listPosts } from "@/lib/blog";
+import { stripTitleHeading } from "@/lib/blog-record";
 import { AUTHOR } from "@/lib/constants";
+import { renderMarkdown } from "@/lib/markdown";
 import {
   articleJsonLd,
   breadcrumbJsonLd,
@@ -46,6 +47,10 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   if (!post) {
     notFound();
   }
+
+  const contentHtml = await renderMarkdown(
+    stripTitleHeading(post.markdown, post.title),
+  );
 
   return (
     <>
@@ -94,11 +99,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             </div>
 
             <div className="prose mt-12 max-w-none">
-              <LeafletContent
-                content={post.content}
-                fallback={post.textContent}
-                title={post.title}
-              />
+              <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
             </div>
           </div>
         </Container>

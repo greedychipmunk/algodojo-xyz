@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { RepoRecord } from "./leaflet";
+import type { RepoRecord } from "./blog-record";
 
 /**
  * Thin, cached access to the AT Protocol XRPC endpoints that serve our blog.

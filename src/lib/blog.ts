@@ -9,7 +9,7 @@ import {
   sortPosts,
   toPost,
   type Post,
-} from "./leaflet";
+} from "./blog-record";
 
 /**
  * Domain layer for the blog: fetches `site.standard.document` records and maps
