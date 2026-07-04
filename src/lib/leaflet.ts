@@ -122,6 +122,53 @@ export function flattenBlocks(content: LeafletContent | undefined): LeafletBlock
   );
 }
 
+export interface ParsedCodeBlock {
+  code: string;
+  lang?: string;
+}
+
+/**
+ * Detect a text block that is really a fenced code block which blog-manager's
+ * markdown→leaflet conversion collapsed onto a single line — leaving literal
+ * fence backticks in the `plaintext` and a `#code` facet over the interior —
+ * and recover it as a proper block-level snippet.
+ *
+ * Leaflet represents *inline* code with a `#code` facet and no literal
+ * backticks, so a block whose trimmed text is wrapped in a backtick fence is
+ * the unambiguous signal of a mangled fenced block (not ordinary prose). We
+ * strip the fence and optional language tag, and pretty-print the payload when
+ * it is valid JSON so one-liners become readable. Returns `null` for anything
+ * that isn't a fenced code block (inline code stays inline).
+ */
+export function parseCodeBlock(block: LeafletBlock): ParsedCodeBlock | null {
+  if (block.$type !== "pub.leaflet.blocks.text") return null;
+
+  const hasCodeFacet = (block.facets ?? []).some((facet) =>
+    (facet.features ?? []).some(
+      (feature) => feature.$type === "pub.leaflet.richtext.facet#code",
+    ),
+  );
+  if (!hasCodeFacet) return null;
+
+  const text = (block.plaintext ?? "").trim();
+  const fence = /^`{2,}([a-zA-Z0-9+#._-]*)[ \t]*\n?([\s\S]*?)\n?[ \t]*`{2,}$/.exec(text);
+  if (!fence) return null;
+
+  const lang = fence[1] ? fence[1].toLowerCase() : undefined;
+  let code = fence[2].trim();
+
+  if (!lang || lang === "json") {
+    try {
+      code = JSON.stringify(JSON.parse(code), null, 2);
+      return { code, lang: "json" };
+    } catch {
+      // Not valid JSON — render the recovered text as-is.
+    }
+  }
+
+  return { code, lang };
+}
+
 // ---------------------------------------------------------------------------
 // Post domain model
 // ---------------------------------------------------------------------------
