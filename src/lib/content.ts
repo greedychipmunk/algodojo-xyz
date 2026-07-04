@@ -35,7 +35,13 @@ function isTutorialTier(value: unknown): value is Tutorial["tier"] {
 }
 
 function isTutorialCategory(value: unknown): value is Tutorial["category"] {
-  return value === "ai" || value === "ml" || value === "automation";
+  return (
+    value === "ai" ||
+    value === "ml" ||
+    value === "automation" ||
+    value === "devops" ||
+    value === "security"
+  );
 }
 
 function isTutorialDifficulty(

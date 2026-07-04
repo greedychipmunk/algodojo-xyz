@@ -85,6 +85,8 @@ export const TUTORIAL_CATEGORIES = [
   { value: "ai", label: "AI" },
   { value: "ml", label: "Machine Learning" },
   { value: "automation", label: "Automation" },
+  { value: "devops", label: "DevOps" },
+  { value: "security", label: "Security" },
 ] as const;
 
 export const TUTORIAL_DIFFICULTIES = [

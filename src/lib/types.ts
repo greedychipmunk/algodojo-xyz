@@ -3,7 +3,7 @@ export interface Tutorial {
   slug: string;
   description: string;
   tier: "free" | "premium";
-  category: "ai" | "ml" | "automation";
+  category: "ai" | "ml" | "automation" | "devops" | "security";
   tags: string[];
   difficulty: "beginner" | "intermediate" | "advanced";
   estimatedReadTime: number;
