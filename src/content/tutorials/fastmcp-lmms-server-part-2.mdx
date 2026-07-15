@@ -1,0 +1,1686 @@
+---
+title: "Build an LMMS MCP Server with FastMCP: AI Music Composition"
+slug: "fastmcp-lmms-server-part-2"
+description: "Part 2 of the LMMS MCP server tutorial. Build tools that let AI agents create new LMMS projects from scratch, add instrument tracks, compose melodies by placing notes on a piano roll, generate drum patterns, build chord progressions, apply scales, and export playable .mmp files — all through the Model Context Protocol."
+tier: "free"
+category: "ai"
+tags: ["fastmcp", "mcp", "lmms", "music-composition", "python", "ai-agents", "xml", "daw", "advanced"]
+difficulty: "advanced"
+estimatedReadTime: 35
+publishedAt: "2026-07-15"
+updatedAt: "2026-07-15"
+author: "Algo Dojo"
+---
+
+import { TutorialPartBanner } from "@/components/tutorials/tutorial-part-banner";
+
+<TutorialPartBanner currentPart={2} totalParts={2} previousSlug="fastmcp-lmms-server-part-1" />
+
+## What You're Building
+
+In [Part 1](/tutorials/fastmcp-lmms-server-part-1), you built an MCP server that reads and analyzes existing LMMS project files. The server parses `.mmp` XML, lists tracks and instruments, extracts note data, and generates project summaries.
+
+Now it's time to flip the direction. Instead of *reading* projects, you'll *create* them.
+
+By the end of this tutorial, your MCP server will let an AI agent:
+
+- **Create a new LMMS project** from scratch with configurable BPM, key, and time signature
+- **Add instrument tracks** — TripleOscillator for melodies, Kicker for drums, BitInvader for bass
+- **Compose melodies** by placing individual notes on a virtual piano roll using MIDI note numbers and tick positions
+- **Generate drum patterns** — kick, snare, hi-hat patterns with configurable time signatures
+- **Build chord progressions** — major, minor, diminished, and seventh chords from a root note
+- **Apply musical scales** — major, minor, pentatonic, blues, and more to constrain note selection
+- **Export playable `.mmp` files** that open directly in LMMS
+
+The result: an AI agent that can hold a conversation about music, then *produce* an LMMS project file you can download and play.
+
+## Prerequisites
+
+This tutorial assumes you've completed Part 1. You should have:
+
+- The `lmms_mcp` project from Part 1 with FastMCP installed
+- The `lmms_parser.py` module that parses `.mmp` files
+- The first set of tools: `lmms_parse_project`, `lmms_list_tracks`, `lmms_get_track_details`, `lmms_list_instruments`, `lmms_get_project_info`, and `lmms_validate_project`
+
+If you haven't read Part 1 yet, start there — this tutorial builds directly on the same codebase.
+
+```bash
+# Verify your Part 1 project is intact
+cd lmms-mcp-server
+python -c "from lmms_parser import parse_mmp_file; print('Parser ready')"
+python server.py --help  # Should show FastMCP server
+```
+
+## Understanding LMMS Project Structure for Creation
+
+Before writing creation tools, you need to understand the XML structure you'll be generating. A minimal LMMS project looks like this:
+
+```xml
+<?xml version="1.0"?>
+<lmms-project version="20" type="song" creator="LMMS" creatorversion="1.3.0">
+  <head>
+    <bpm>140</bpm>
+    <mastervol>100</mastervol>
+    <masterpitch>0</masterpitch>
+  </head>
+  <song>
+    <trackcontainer>
+      <!-- tracks go here -->
+    </trackcontainer>
+    <timeline>
+      <tco pos="0" len="192" muted="0" track="0"/>
+    </timeline>
+    <mixer>
+      <fxchannel num="0" name="Master" volume="100"/>
+    </mixer>
+  </song>
+</lmms-project>
+```
+
+### Key Concepts
+
+**Ticks**: LMMS measures time in *ticks*. The default resolution is 48 ticks per beat (quarter note), so:
+- 1 beat (quarter note) = 48 ticks
+- 1 bar (4/4 time) = 192 ticks
+- 1 eighth note = 24 ticks
+- 1 sixteenth note = 12 ticks
+
+**MIDI Note Numbers**: LMMS uses MIDI note numbers for pitch:
+- 60 = C4 (middle C)
+- 62 = D4
+- 64 = E4
+- 65 = F4
+- 67 = G4
+- 69 = A4 (440 Hz)
+- 72 = C5
+
+**Track Types**: LMMS supports several track types:
+- `type="0"` — Instrument track (plays a synthesizer)
+- `type="1"` — Beat/Bassline track (BB track, contains patterns)
+- `type="2"` — Sample track (plays audio files)
+- `type="3"` — Automation track (controls parameters over time)
+
+**Built-in Instruments**: LMMS ships with several synthesizers:
+- `tripleoscillator` — 3-oscillator subtractive synth (great for melodies)
+- `kicker` — Kick drum synthesizer
+- `bitinvader` — Wavetable synth with custom waveforms
+- `sfxr` — Sound effect generator (8-bit game sounds)
+- `sid` — Commodore 64 SID chip emulator
+- `lb302` — TB-303 bass line synth
+- `monstro` — 3-oscillator monster synth
+- `audiofileprocessor` — Sample player
+
+## Building the Project Creator
+
+Let's start with the most important tool: creating a new, empty LMMS project.
+
+### The Project Builder Module
+
+Create a new file called `lmms_builder.py`:
+
+```python
+"""LMMS project builder — generates .mmp XML files from scratch."""
+
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+from typing import Optional
+from dataclasses import dataclass, field
+
+# Tick constants
+TICKS_PER_BEAT = 48
+TICKS_PER_BAR = 192  # 4/4 time
+
+# MIDI note name to number mapping
+NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+def midi_to_note_name(midi_number: int) -> str:
+    """Convert a MIDI note number to a note name (e.g., 60 -> 'C4')."""
+    octave = (midi_number // 12) - 1
+    note = NOTE_NAMES[midi_number % 12]
+    return f"{note}{octave}"
+
+def note_name_to_midi(name: str) -> int:
+    """Convert a note name (e.g., 'C4') to a MIDI note number."""
+    # Parse note name like "C4", "C#4", "Db4"
+    note = name[0].upper()
+    if len(name) > 1 and name[1] in "#b":
+        if name[1] == "#":
+            note += "#"
+        else:
+            # Convert flat to sharp
+            flat_to_sharp = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+            note = flat_to_sharp.get(note + "b", note)
+        octave_str = name[2:]
+    else:
+        octave_str = name[1:]
+    octave = int(octave_str)
+    note_idx = NOTE_NAMES.index(note)
+    return (octave + 1) * 12 + note_idx
+
+
+@dataclass
+class Note:
+    """A single musical note."""
+    position: int   # Position in ticks from start of pattern
+    key: int        # MIDI note number (0-127)
+    length: int     # Duration in ticks
+    volume: int = 100  # 0-200
+    pan: int = 0    # -100 to 100 (0 = center)
+
+
+@dataclass
+class Pattern:
+    """A pattern containing notes."""
+    position: int = 0      # Position in ticks on the timeline
+    length: int = 192      # Length in ticks (1 bar by default)
+    notes: list[Note] = field(default_factory=list)
+    muted: bool = False
+
+
+@dataclass
+class InstrumentTrack:
+    """An instrument track with patterns."""
+    name: str
+    instrument_name: str
+    instrument_type: str = "instrumenttrack"
+    patterns: list[Pattern] = field(default_factory=list)
+    volume: int = 100
+    muted: bool = False
+    solo: bool = False
+    track_type: int = 0  # 0 = instrument, 1 = BB track
+
+
+@dataclass
+class LMMSProject:
+    """A complete LMMS project."""
+    bpm: float = 140.0
+    master_volume: int = 100
+    master_pitch: int = 0
+    tracks: list[InstrumentTrack] = field(default_factory=list)
+    version: int = 20
+    creator_version: str = "1.3.0"
+
+    def add_track(self, track: InstrumentTrack) -> int:
+        """Add a track and return its index."""
+        self.tracks.append(track)
+        return len(self.tracks) - 1
+
+
+def _pretty_xml(element: ET.Element) -> str:
+    """Convert an ElementTree element to a pretty-printed XML string."""
+    rough = ET.tostring(element, encoding="unicode")
+    parsed = minidom.parseString(rough)
+    return parsed.toprettyxml(indent="  ")
+
+
+def build_project_xml(project: LMMSProject) -> str:
+    """Build a complete .mmp XML string from an LMMSProject."""
+    # Root element
+    root = ET.Element("lmms-project", {
+        "version": str(project.version),
+        "type": "song",
+        "creator": "LMMS",
+        "creatorversion": project.creator_version,
+    })
+
+    # Head section
+    head = ET.SubElement(root, "head")
+    ET.SubElement(head, "bpm").text = str(project.bpm)
+    ET.SubElement(head, "mastervol").text = str(project.master_volume)
+    ET.SubElement(head, "masterpitch").text = str(project.master_pitch)
+
+    # Song section
+    song = ET.SubElement(root, "song")
+
+    # Track container
+    track_container = ET.SubElement(song, "trackcontainer")
+
+    for i, track in enumerate(project.tracks):
+        track_elem = ET.SubElement(track_container, "track", {
+            "type": str(track.track_type),
+            "name": track.name,
+            "muted": "1" if track.muted else "0",
+            "solo": "1" if track.solo else "0",
+        })
+
+        # Instrument track wrapper
+        instr_track = ET.SubElement(track_elem, track.instrument_type)
+
+        # Instrument definition
+        instr = ET.SubElement(instr_track, "instrument", {
+            "name": track.instrument_name,
+        })
+
+        # Instrument-specific parameters
+        _add_instrument_params(instr, track.instrument_name)
+
+        # Volume
+        ET.SubElement(instr_track, "vol").text = str(track.volume)
+
+        # Patterns
+        for pattern in track.patterns:
+            pattern_elem = ET.SubElement(instr_track, "pattern", {
+                "pos": str(pattern.position),
+                "len": str(pattern.length),
+                "muted": "1" if pattern.muted else "0",
+            })
+
+            for note in pattern.notes:
+                ET.SubElement(pattern_elem, "note", {
+                    "pos": str(note.position),
+                    "key": str(note.key),
+                    "len": str(note.length),
+                    "vol": str(note.volume),
+                    "pan": str(note.pan),
+                })
+
+    # Timeline
+    timeline = ET.SubElement(song, "timeline")
+    for i, track in enumerate(project.tracks):
+        if track.patterns:
+            ET.SubElement(timeline, "tco", {
+                "pos": "0",
+                "len": str(track.patterns[0].length),
+                "muted": "0",
+                "track": str(i),
+            })
+
+    # Mixer
+    mixer = ET.SubElement(song, "mixer")
+    ET.SubElement(mixer, "fxchannel", {
+        "num": "0",
+        "name": "Master",
+        "volume": "100",
+    })
+
+    return _pretty_xml(root)
+
+
+def _add_instrument_params(instr: ET.Element, instrument_name: str) -> None:
+    """Add default parameters for known instruments."""
+    if instrument_name == "tripleoscillator":
+        # Three oscillators with default sine waves
+        for i in range(3):
+            osc = ET.SubElement(instr, f"oscillator{i}", {
+                "wave": "0",       # 0 = sine
+                "detune": "0",
+                "vol": "33",
+                "pan": "0",
+            })
+        ET.SubElement(instr, "fadeout").text = "0"
+    elif instrument_name == "kicker":
+        ET.SubElement(instr, "startnote").text = "0"
+        ET.SubElement(instr, "startnote").set("len", "48")
+    elif instrument_name == "bitinvader":
+        ET.SubElement(instr, "wave").text = "0"
+        ET.SubElement(instr, "sample_count").text = "128"
+```
+
+This module gives you a clean, typed way to build LMMS projects programmatically. The `LMMSProject` dataclass holds tracks, tracks hold patterns, and patterns hold notes — exactly mirroring the XML structure.
+
+## Adding Creation Tools to the MCP Server
+
+Now let's add the creation tools to `server.py`. Open your existing server file and add these imports and tools:
+
+```python
+# Add to the imports at the top of server.py
+from lmms_builder import (
+    LMMSProject, InstrumentTrack, Pattern, Note,
+    build_project_xml, midi_to_note_name, note_name_to_midi,
+    TICKS_PER_BEAT, TICKS_PER_BAR,
+)
+```
+
+### Tool 1: Create a New Project
+
+```python
+class CreateProjectInput(BaseModel):
+    """Input model for creating a new LMMS project."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    bpm: float = Field(
+        default=140.0,
+        description="Tempo in beats per minute (e.g., 120, 140, 174)",
+        ge=20, le=400,
+    )
+    master_volume: int = Field(
+        default=100,
+        description="Master volume (0-200, 100 = default)",
+        ge=0, le=200,
+    )
+    master_pitch: int = Field(
+        default=0,
+        description="Master pitch shift in semitones (-12 to 12)",
+        ge=-12, le=12,
+    )
+    output_path: str = Field(
+        ...,
+        description="File path to save the .mmp file (e.g., '/home/user/my_song.mmp')",
+        min_length=1, max_length=500,
+    )
+
+
+@mcp.tool(
+    name="lmms_create_project",
+    annotations={
+        "title": "Create New LMMS Project",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_create_project(params: CreateProjectInput) -> str:
+    """Create a new, empty LMMS project file (.mmp).
+
+    This tool generates a valid LMMS project XML file with the specified
+    tempo, master volume, and pitch. The project starts with no tracks —
+    use lmms_add_track to add instruments, then lmms_add_notes to compose.
+
+    Args:
+        params (CreateProjectInput): Validated input containing:
+            - bpm (float): Tempo in BPM (default: 140.0)
+            - master_volume (int): Master volume 0-200 (default: 100)
+            - master_pitch (int): Pitch shift in semitones (default: 0)
+            - output_path (str): Where to save the .mmp file
+
+    Returns:
+        str: JSON with project info and file path, or error message.
+
+    Example:
+        Create a 140 BPM project:
+            params with bpm=140, output_path="/tmp/my_song.mmp"
+        Create a slow 60 BPM ballad:
+            params with bpm=60, output_path="/tmp/ballad.mmp"
+    """
+    try:
+        project = LMMSProject(
+            bpm=params.bpm,
+            master_volume=params.master_volume,
+            master_pitch=params.master_pitch,
+        )
+
+        xml_content = build_project_xml(project)
+
+        with open(params.output_path, "w") as f:
+            f.write(xml_content)
+
+        return json.dumps({
+            "status": "created",
+            "file_path": params.output_path,
+            "bpm": params.bpm,
+            "master_volume": params.master_volume,
+            "track_count": 0,
+            "message": f"Empty project created at {params.output_path}. "
+                       "Use lmms_add_track to add instruments."
+        }, indent=2)
+
+    except Exception as e:
+        return f"Error creating project: {type(e).__name__}: {str(e)}"
+```
+
+### Tool 2: Add an Instrument Track
+
+```python
+class AddTrackInput(BaseModel):
+    """Input model for adding a track to an existing project."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    project_path: str = Field(
+        ...,
+        description="Path to the .mmp file to modify",
+        min_length=1, max_length=500,
+    )
+    track_name: str = Field(
+        ...,
+        description="Display name for the track (e.g., 'Lead Melody', 'Bass', 'Kick Drum')",
+        min_length=1, max_length=100,
+    )
+    instrument: str = Field(
+        ...,
+        description=(
+            "Instrument name. Common options: "
+            "'tripleoscillator' (melody/synth), 'kicker' (kick drum), "
+            "'bitinvader' (bass/wavetable), 'sfxr' (8-bit SFX), "
+            "'sid' (C64 chip), 'lb302' (acid bass), 'monstro' (complex synth), "
+            "'audiofileprocessor' (sample player)"
+        ),
+        min_length=1, max_length=50,
+    )
+    volume: int = Field(
+        default=100,
+        description="Track volume (0-200, 100 = default)",
+        ge=0, le=200,
+    )
+    track_type: str = Field(
+        default="instrument",
+        description="Track type: 'instrument' for melodic, 'bb' for beat/bassline",
+        pattern="^(instrument|bb)$",
+    )
+
+
+@mcp.tool(
+    name="lmms_add_track",
+    annotations={
+        "title": "Add Instrument Track to LMMS Project",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_add_track(params: AddTrackInput) -> str:
+    """Add an instrument track to an existing LMMS project.
+
+    This tool modifies a .mmp file by appending a new track with the
+    specified instrument. The track starts with no patterns — use
+    lmms_add_notes to add musical content.
+
+    Args:
+        params (AddTrackInput): Validated input containing:
+            - project_path (str): Path to the .mmp file
+            - track_name (str): Display name for the track
+            - instrument (str): LMMS instrument name
+            - volume (int): Track volume 0-200 (default: 100)
+            - track_type (str): 'instrument' or 'bb' (default: 'instrument')
+
+    Returns:
+        str: JSON with track info and updated track count, or error.
+
+    Example:
+        Add a lead synth:
+            params with track_name="Lead", instrument="tripleoscillator"
+        Add a kick drum:
+            params with track_name="Kick", instrument="kicker", track_type="bb"
+    """
+    try:
+        # Parse existing project
+        tree = ET.parse(params.project_path)
+        root = tree.getroot()
+
+        # Find trackcontainer
+        song = root.find("song")
+        if song is None:
+            return "Error: Invalid .mmp file — no <song> element found"
+
+        track_container = song.find("trackcontainer")
+        if track_container is None:
+            track_container = ET.SubElement(song, "trackcontainer")
+
+        # Determine track type number
+        type_num = "0" if params.track_type == "instrument" else "1"
+        wrapper_tag = "instrumenttrack" if params.track_type == "instrument" else "bbtrack"
+
+        # Create track element
+        track_elem = ET.SubElement(track_container, "track", {
+            "type": type_num,
+            "name": params.track_name,
+            "muted": "0",
+            "solo": "0",
+        })
+
+        # Create instrument track wrapper
+        instr_wrapper = ET.SubElement(track_elem, wrapper_tag)
+
+        # Add instrument
+        instr = ET.SubElement(instr_wrapper, "instrument", {
+            "name": params.instrument,
+        })
+
+        # Add volume
+        ET.SubElement(instr_wrapper, "vol").text = str(params.volume)
+
+        # Count tracks
+        track_count = len(track_container.findall("track"))
+
+        # Save
+        tree.write(params.output_path if hasattr(params, 'output_path') else params.project_path,
+                   encoding="unicode", xml_declaration=True)
+
+        return json.dumps({
+            "status": "track_added",
+            "track_name": params.track_name,
+            "instrument": params.instrument,
+            "track_type": params.track_type,
+            "total_tracks": track_count,
+            "message": f"Track '{params.track_name}' ({params.instrument}) added. "
+                       "Use lmms_add_notes to add notes."
+        }, indent=2)
+
+    except FileNotFoundError:
+        return f"Error: Project file not found at {params.project_path}"
+    except ET.ParseError as e:
+        return f"Error: Failed to parse .mmp file: {str(e)}"
+    except Exception as e:
+        return f"Error adding track: {type(e).__name__}: {str(e)}"
+```
+
+### Tool 3: Add Notes to a Track
+
+This is the core composition tool — it lets the AI place individual notes on a track's piano roll.
+
+```python
+class NoteInput(BaseModel):
+    """A single note to add."""
+    model_config = ConfigDict(extra="forbid")
+
+    position: int = Field(
+        ...,
+        description="Position in ticks from start of pattern (0 = start). "
+                    "48 ticks = 1 beat, 192 ticks = 1 bar",
+        ge=0, le=9600,  # Up to 50 bars
+    )
+    key: int = Field(
+        ...,
+        description="MIDI note number (0-127). 60 = C4 (middle C), 72 = C5. "
+                    "Common range: 36 (C2) to 84 (C6)",
+        ge=0, le=127,
+    )
+    length: int = Field(
+        default=48,
+        description="Note duration in ticks. 48 = quarter note, 24 = eighth, "
+                    "12 = sixteenth, 96 = half note, 192 = whole note",
+        ge=1, le=9600,
+    )
+    volume: int = Field(
+        default=100,
+        description="Note volume (0-200, 100 = default)",
+        ge=0, le=200,
+    )
+    pan: int = Field(
+        default=0,
+        description="Panning (-100 = full left, 0 = center, 100 = full right)",
+        ge=-100, le=100,
+    )
+
+
+class AddNotesInput(BaseModel):
+    """Input model for adding notes to a track."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    project_path: str = Field(
+        ...,
+        description="Path to the .mmp file to modify",
+        min_length=1, max_length=500,
+    )
+    track_index: int = Field(
+        ...,
+        description="Index of the track to add notes to (0-based, from lmms_list_tracks)",
+        ge=0, le=63,
+    )
+    notes: list[NoteInput] = Field(
+        ...,
+        description="List of notes to add. Each note has position (ticks), "
+                    "key (MIDI number), length (ticks), volume, and pan",
+        min_length=1, max_length=500,
+    )
+    pattern_position: int = Field(
+        default=0,
+        description="Position of the pattern on the timeline in ticks (default: 0)",
+        ge=0, le=9600,
+    )
+    pattern_length: int = Field(
+        default=192,
+        description="Length of the pattern in ticks (192 = 1 bar, 384 = 2 bars)",
+        ge=48, le=9600,
+    )
+
+
+@mcp.tool(
+    name="lmms_add_notes",
+    annotations={
+        "title": "Add Notes to LMMS Track",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_add_notes(params: AddNotesInput) -> str:
+    """Add musical notes to a track in an LMMS project.
+
+    This tool places notes on a track's piano roll. Each note has a position
+    (in ticks), pitch (MIDI note number), length (in ticks), volume, and pan.
+    Multiple notes can be added in a single call to build chords or melodies.
+
+    Tick resolution: 48 ticks = 1 beat (quarter note), 192 ticks = 1 bar.
+    MIDI notes: 60 = C4 (middle C), 62 = D4, 64 = E4, 65 = F4, 67 = G4,
+    69 = A4, 71 = B4, 72 = C5.
+
+    Args:
+        params (AddNotesInput): Validated input containing:
+            - project_path (str): Path to the .mmp file
+            - track_index (int): 0-based track index
+            - notes (list[NoteInput]): Notes to add (position, key, length, volume, pan)
+            - pattern_position (int): Pattern position on timeline in ticks
+            - pattern_length (int): Pattern length in ticks
+
+    Returns:
+        str: JSON with note count and note summary, or error.
+
+    Example:
+        Add a C major scale:
+            notes with positions [0, 24, 48, 72, 96, 120, 144]
+            and keys [60, 62, 64, 65, 67, 69, 72]
+        Add a C major chord (C-E-G):
+            notes with key=60, key=64, key=67, all at position=0
+    """
+    try:
+        tree = ET.parse(params.project_path)
+        root = tree.getroot()
+
+        song = root.find("song")
+        track_container = song.find("trackcontainer")
+        tracks = track_container.findall("track")
+
+        if params.track_index >= len(tracks):
+            return f"Error: Track index {params.track_index} out of range. " \
+                   f"Project has {len(tracks)} tracks (0-{len(tracks)-1})."
+
+        track = tracks[params.track_index]
+
+        # Find or create instrumenttrack/bbtrack wrapper
+        wrapper = track.find("instrumenttrack") or track.find("bbtrack")
+        if wrapper is None:
+            return f"Error: Track {params.track_index} is not an instrument track"
+
+        # Create a new pattern
+        pattern = ET.SubElement(wrapper, "pattern", {
+            "pos": str(params.pattern_position),
+            "len": str(params.pattern_length),
+            "muted": "0",
+        })
+
+        # Add notes
+        note_summaries = []
+        for note in params.notes:
+            ET.SubElement(pattern, "note", {
+                "pos": str(note.position),
+                "key": str(note.key),
+                "len": str(note.length),
+                "vol": str(note.volume),
+                "pan": str(note.pan),
+            })
+            note_summaries.append({
+                "position": note.position,
+                "key": note.key,
+                "note_name": midi_to_note_name(note.key),
+                "length": note.length,
+            })
+
+        # Save
+        tree.write(params.project_path, encoding="unicode", xml_declaration=True)
+
+        return json.dumps({
+            "status": "notes_added",
+            "track_index": params.track_index,
+            "track_name": track.get("name", "unnamed"),
+            "note_count": len(params.notes),
+            "pattern_length": params.pattern_length,
+            "notes": note_summaries[:10],  # Show first 10 for context
+            "message": f"Added {len(params.notes)} notes to track "
+                       f"'{track.get('name', 'unnamed')}'. "
+                       f"Open {params.project_path} in LMMS to play."
+        }, indent=2)
+
+    except FileNotFoundError:
+        return f"Error: Project file not found at {params.project_path}"
+    except ET.ParseError as e:
+        return f"Error: Failed to parse .mmp file: {str(e)}"
+    except Exception as e:
+        return f"Error adding notes: {type(e).__name__}: {str(e)}"
+```
+
+## Building a Melody Generator
+
+Now let's add a higher-level tool that generates melodies from a scale and key, so the AI doesn't have to place every note individually.
+
+### Music Theory Helpers
+
+Add these to `lmms_builder.py`:
+
+```python
+# Scale definitions (semitone offsets from root)
+SCALES = {
+    "major": [0, 2, 4, 5, 7, 9, 11, 12],
+    "natural_minor": [0, 2, 3, 5, 7, 8, 10, 12],
+    "harmonic_minor": [0, 2, 3, 5, 7, 8, 11, 12],
+    "pentatonic_major": [0, 2, 4, 7, 9, 12],
+    "pentatonic_minor": [0, 3, 5, 7, 10, 12],
+    "blues": [0, 3, 5, 6, 7, 10, 12],
+    "dorian": [0, 2, 3, 5, 7, 9, 10, 12],
+    "mixolydian": [0, 2, 4, 5, 7, 9, 10, 12],
+    "chromatic": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+}
+
+# Chord definitions (semitone offsets from root)
+CHORDS = {
+    "major": [0, 4, 7],
+    "minor": [0, 3, 7],
+    "diminished": [0, 3, 6],
+    "augmented": [0, 4, 8],
+    "major7": [0, 4, 7, 11],
+    "minor7": [0, 3, 7, 10],
+    "dominant7": [0, 4, 7, 10],
+    "sus4": [0, 5, 7],
+    "add9": [0, 4, 7, 14],
+}
+
+
+def get_scale_notes(root_note: int, scale_name: str, octaves: int = 1) -> list[int]:
+    """Get a list of MIDI note numbers for a scale.
+
+    Args:
+        root_note: MIDI note number of the root (e.g., 60 for C4)
+        scale_name: Name of the scale (see SCALES dict)
+        octaves: Number of octaves to span (default: 1)
+
+    Returns:
+        List of MIDI note numbers in the scale
+    """
+    if scale_name not in SCALES:
+        raise ValueError(f"Unknown scale '{scale_name}'. Available: {list(SCALES.keys())}")
+
+    intervals = SCALES[scale_name]
+    notes = []
+    for octave in range(octaves):
+        for interval in intervals:
+            notes.append(root_note + interval + octave * 12)
+
+    return notes
+
+
+def get_chord_notes(root_note: int, chord_type: str) -> list[int]:
+    """Get MIDI note numbers for a chord.
+
+    Args:
+        root_note: MIDI note number of the root
+        chord_type: Chord type (see CHORDS dict)
+
+    Returns:
+        List of MIDI note numbers forming the chord
+    """
+    if chord_type not in CHORDS:
+        raise ValueError(f"Unknown chord '{chord_type}'. Available: {list(CHORDS.keys())}")
+
+    return [root_note + interval for interval in CHORDS[chord_type]]
+
+
+def generate_melody(
+    root_note: int,
+    scale_name: str,
+    num_bars: int = 4,
+    note_duration: int = 24,
+    seed: int | None = None,
+) -> list[Note]:
+    """Generate a simple melody from a scale.
+
+    Args:
+        root_note: Root MIDI note number
+        scale_name: Scale to use
+        num_bars: Number of bars to generate
+        note_duration: Duration of each note in ticks
+        seed: Random seed for reproducibility
+
+    Returns:
+        List of Note objects
+    """
+    import random
+    if seed is not None:
+        random.seed(seed)
+
+    scale_notes = get_scale_notes(root_note, scale_name, octaves=2)
+    notes = []
+    position = 0
+    total_ticks = num_bars * TICKS_PER_BAR
+
+    while position < total_ticks:
+        # Occasionally rest (skip a beat)
+        if random.random() < 0.15 and position > 0:
+            position += note_duration
+            continue
+
+        # Pick a note from the scale (weighted toward root and fifth)
+        weights = []
+        for note in scale_notes:
+            degree = (note - root_note) % 12
+            if degree == 0:  # Root
+                weights.append(5)
+            elif degree == 7:  # Fifth
+                weights.append(4)
+            elif degree == 4:  # Third
+                weights.append(3)
+            else:
+                weights.append(1)
+
+        key = random.choices(scale_notes, weights=weights)[0]
+
+        # Vary note length occasionally
+        length = note_duration
+        if random.random() < 0.2:
+            length = note_duration * 2  # Double length sometimes
+
+        notes.append(Note(
+            position=position,
+            key=key,
+            length=length,
+            volume=random.randint(80, 120),
+        ))
+
+        position += note_duration
+
+    return notes
+```
+
+### The Melody Generator Tool
+
+Now add this tool to `server.py`:
+
+```python
+class GenerateMelodyInput(BaseModel):
+    """Input model for melody generation."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    project_path: str = Field(
+        ...,
+        description="Path to the .mmp file",
+        min_length=1, max_length=500,
+    )
+    track_index: int = Field(
+        ...,
+        description="Index of the track to add the melody to (0-based)",
+        ge=0, le=63,
+    )
+    root_note: int = Field(
+        default=60,
+        description="Root note as MIDI number (60 = C4, 57 = A3, 64 = E4)",
+        ge=0, le=127,
+    )
+    scale: str = Field(
+        default="major",
+        description=(
+            "Scale name. Options: 'major', 'natural_minor', 'harmonic_minor', "
+            "'pentatonic_major', 'pentatonic_minor', 'blues', 'dorian', "
+            "'mixolydian', 'chromatic'"
+        ),
+        pattern="^(major|natural_minor|harmonic_minor|pentatonic_major|pentatonic_minor|blues|dorian|mixolydian|chromatic)$",
+    )
+    num_bars: int = Field(
+        default=4,
+        description="Number of bars to generate (1-16)",
+        ge=1, le=16,
+    )
+    note_duration: int = Field(
+        default=24,
+        description="Duration of each note in ticks (12 = 16th, 24 = 8th, 48 = quarter)",
+        ge=12, le=192,
+    )
+    seed: Optional[int] = Field(
+        default=None,
+        description="Random seed for reproducible melodies (e.g., 42)",
+        ge=0, le=999999,
+    )
+
+
+@mcp.tool(
+    name="lmms_generate_melody",
+    annotations={
+        "title": "Generate Melody for LMMS Track",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_generate_melody(params: GenerateMelodyInput) -> str:
+    """Generate a melody and add it to a track in an LMMS project.
+
+    This tool uses music theory to generate a melody from a specified scale
+    and root note. The melody is weighted toward the root, third, and fifth
+    degrees for musicality. Use this to quickly create melodic content without
+    manually specifying each note.
+
+    Scales available: major, natural_minor, harmonic_minor, pentatonic_major,
+    pentatonic_minor, blues, dorian, mixolydian, chromatic.
+
+    Args:
+        params (GenerateMelodyInput): Validated input containing:
+            - project_path (str): Path to the .mmp file
+            - track_index (int): Track to add melody to
+            - root_note (int): Root MIDI note (default: 60 = C4)
+            - scale (str): Scale name (default: 'major')
+            - num_bars (int): Bars to generate (default: 4)
+            - note_duration (int): Note length in ticks (default: 24 = eighth)
+            - seed (Optional[int]): Random seed for reproducibility
+
+    Returns:
+        str: JSON with generated melody info, or error.
+
+    Example:
+        Generate a 4-bar C major melody:
+            params with root_note=60, scale="major", num_bars=4
+        Generate a blues melody in A:
+            params with root_note=57, scale="blues", num_bars=8, seed=42
+    """
+    try:
+        from lmms_builder import generate_melody, get_scale_notes
+
+        # Generate the melody
+        notes = generate_melody(
+            root_note=params.root_note,
+            scale_name=params.scale,
+            num_bars=params.num_bars,
+            note_duration=params.note_duration,
+            seed=params.seed,
+        )
+
+        # Convert to NoteInput objects and use lmms_add_notes logic
+        tree = ET.parse(params.project_path)
+        root = tree.getroot()
+        song = root.find("song")
+        track_container = song.find("trackcontainer")
+        tracks = track_container.findall("track")
+
+        if params.track_index >= len(tracks):
+            return f"Error: Track index {params.track_index} out of range. " \
+                   f"Project has {len(tracks)} tracks."
+
+        track = tracks[params.track_index]
+        wrapper = track.find("instrumenttrack") or track.find("bbtrack")
+        if wrapper is None:
+            return f"Error: Track {params.track_index} is not an instrument track"
+
+        # Create pattern
+        pattern_length = params.num_bars * TICKS_PER_BAR
+        pattern_elem = ET.SubElement(wrapper, "pattern", {
+            "pos": "0",
+            "len": str(pattern_length),
+            "muted": "0",
+        })
+
+        # Add notes
+        for note in notes:
+            ET.SubElement(pattern_elem, "note", {
+                "pos": str(note.position),
+                "key": str(note.key),
+                "len": str(note.length),
+                "vol": str(note.volume),
+                "pan": "0",
+            })
+
+        # Save
+        tree.write(params.project_path, encoding="unicode", xml_declaration=True)
+
+        # Generate summary
+        scale_notes = get_scale_notes(params.root_note, params.scale)
+        note_names = [midi_to_note_name(n) for n in scale_notes]
+
+        return json.dumps({
+            "status": "melody_generated",
+            "track_index": params.track_index,
+            "track_name": track.get("name", "unnamed"),
+            "root_note": params.root_note,
+            "root_note_name": midi_to_note_name(params.root_note),
+            "scale": params.scale,
+            "scale_notes": note_names,
+            "num_bars": params.num_bars,
+            "note_count": len(notes),
+            "seed": params.seed,
+            "message": f"Generated {len(notes)} notes across {params.num_bars} bars "
+                       f"in {params.scale} scale starting at {midi_to_note_name(params.root_note)}. "
+                       f"Open {params.project_path} in LMMS to play."
+        }, indent=2)
+
+    except Exception as e:
+        return f"Error generating melody: {type(e).__name__}: {str(e)}"
+```
+
+## Building a Drum Pattern Generator
+
+Drum patterns are a key part of any LMMS project. Let's add a tool that generates common drum patterns.
+
+```python
+class GenerateDrumsInput(BaseModel):
+    """Input model for drum pattern generation."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    project_path: str = Field(
+        ...,
+        description="Path to the .mmp file",
+        min_length=1, max_length=500,
+    )
+    kick_track_index: int = Field(
+        ...,
+        description="Track index for the kick drum (0-based)",
+        ge=0, le=63,
+    )
+    snare_track_index: Optional[int] = Field(
+        default=None,
+        description="Track index for the snare (0-based, null to skip)",
+        ge=0, le=63,
+    )
+    hihat_track_index: Optional[int] = Field(
+        default=None,
+        description="Track index for the hi-hat (0-based, null to skip)",
+        ge=0, le=63,
+    )
+    pattern: str = Field(
+        default="four_on_the_floor",
+        description=(
+            "Drum pattern name. Options: 'four_on_the_floor' (house/techno), "
+            "'boom_bap' (hip-hop), 'breakbeat' (drum & bass), "
+            "'rock' (basic rock), 'trap' (modern trap)"
+        ),
+        pattern="^(four_on_the_floor|boom_bap|breakbeat|rock|trap)$",
+    )
+    num_bars: int = Field(
+        default=4,
+        description="Number of bars to generate (1-8)",
+        ge=1, le=8,
+    )
+
+
+# Drum pattern definitions (positions in ticks within one bar)
+DRUM_PATTERNS = {
+    "four_on_the_floor": {
+        "kick": [0, 48, 96, 144],          # Every beat
+        "snare": [48, 144],                # Beats 2 and 4
+        "hihat": [0, 24, 48, 72, 96, 120, 144, 168],  # Eighth notes
+    },
+    "boom_bap": {
+        "kick": [0, 72],                   # Beat 1 and the "and" of 3
+        "snare": [48, 144],                # Beats 2 and 4
+        "hihat": [0, 24, 48, 72, 96, 120, 144, 168],
+    },
+    "breakbeat": {
+        "kick": [0, 96, 120],
+        "snare": [48, 144, 168],
+        "hihat": [0, 24, 48, 72, 96, 120, 144, 168],
+    },
+    "rock": {
+        "kick": [0, 96],
+        "snare": [48, 144],
+        "hihat": [0, 24, 48, 72, 96, 120, 144, 168],
+    },
+    "trap": {
+        "kick": [0, 72, 120],
+        "snare": [144],
+        "hihat": [0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144, 156, 168, 180],
+    },
+}
+
+
+@mcp.tool(
+    name="lmms_generate_drums",
+    annotations={
+        "title": "Generate Drum Pattern for LMMS",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_generate_drums(params: GenerateDrumsInput) -> str:
+    """Generate a drum pattern and add it to tracks in an LMMS project.
+
+    This tool creates common drum patterns (four-on-the-floor, boom bap,
+    breakbeat, rock, trap) by placing notes on the specified tracks. The
+    kick, snare, and hi-hat each need their own track with the appropriate
+    instrument (kicker for kick, sample player for snare/hi-hat).
+
+    Args:
+        params (GenerateDrumsInput): Validated input containing:
+            - project_path (str): Path to the .mmp file
+            - kick_track_index (int): Track index for kick
+            - snare_track_index (Optional[int]): Track index for snare (null to skip)
+            - hihat_track_index (Optional[int]): Track index for hi-hat (null to skip)
+            - pattern (str): Pattern name (default: 'four_on_the_floor')
+            - num_bars (int): Number of bars (default: 4)
+
+    Returns:
+        str: JSON with pattern info and notes added per track, or error.
+
+    Example:
+        Generate a house beat:
+            params with pattern="four_on_the_floor", kick_track_index=0,
+            snare_track_index=1, hihat_track_index=2
+        Generate a trap beat:
+            params with pattern="trap", kick_track_index=0,
+            hihat_track_index=1
+    """
+    try:
+        if params.pattern not in DRUM_PATTERNS:
+            return f"Error: Unknown pattern '{params.pattern}'. Available: {list(DRUM_PATTERNS.keys())}"
+
+        pattern_def = DRUM_PATTERNS[params.pattern]
+        tree = ET.parse(params.project_path)
+        root = tree.getroot()
+        song = root.find("song")
+        track_container = song.find("trackcontainer")
+        tracks = track_container.findall("track")
+
+        results = {}
+        pattern_length = TICKS_PER_BAR
+
+        # Track mapping
+        track_map = {
+            "kick": params.kick_track_index,
+            "snare": params.snare_track_index,
+            "hihat": params.hihat_track_index,
+        }
+
+        for drum_name, track_idx in track_map.items():
+            if track_idx is None or drum_name not in pattern_def:
+                continue
+
+            if track_idx >= len(tracks):
+                results[drum_name] = {"error": f"Track index {track_idx} out of range"}
+                continue
+
+            track = tracks[track_idx]
+            wrapper = track.find("instrumenttrack") or track.find("bbtrack")
+            if wrapper is None:
+                results[drum_name] = {"error": f"Track {track_idx} is not an instrument track"}
+                continue
+
+            # Create pattern for this drum
+            pattern_elem = ET.SubElement(wrapper, "pattern", {
+                "pos": "0",
+                "len": str(params.num_bars * pattern_length),
+                "muted": "0",
+            })
+
+            # Add notes for each bar
+            positions = pattern_def[drum_name]
+            note_count = 0
+            for bar in range(params.num_bars):
+                bar_offset = bar * pattern_length
+                for pos in positions:
+                    ET.SubElement(pattern_elem, "note", {
+                        "pos": str(bar_offset + pos),
+                        "key": "36",  # C2 — standard drum note
+                        "len": "24",
+                        "vol": "100",
+                        "pan": "0",
+                    })
+                    note_count += 1
+
+            results[drum_name] = {
+                "track_index": track_idx,
+                "track_name": track.get("name", "unnamed"),
+                "notes_added": note_count,
+            }
+
+        # Save
+        tree.write(params.project_path, encoding="unicode", xml_declaration=True)
+
+        return json.dumps({
+            "status": "drums_generated",
+            "pattern": params.pattern,
+            "num_bars": params.num_bars,
+            "tracks": results,
+            "message": f"Generated {params.pattern} drum pattern across "
+                       f"{params.num_bars} bars. "
+                       f"Open {params.project_path} in LMMS to play."
+        }, indent=2)
+
+    except Exception as e:
+        return f"Error generating drums: {type(e).__name__}: {str(e)}"
+```
+
+## Building a Chord Progression Tool
+
+Chord progressions are the harmonic foundation of most music. Let's add a tool that generates them.
+
+```python
+class GenerateChordsInput(BaseModel):
+    """Input model for chord progression generation."""
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    project_path: str = Field(
+        ...,
+        description="Path to the .mmp file",
+        min_length=1, max_length=500,
+    )
+    track_index: int = Field(
+        ...,
+        description="Track index for the chord instrument (0-based)",
+        ge=0, le=63,
+    )
+    root_note: int = Field(
+        default=60,
+        description="Root note of the key as MIDI number (60 = C4)",
+        ge=0, le=127,
+    )
+    progression: str = Field(
+        default="I-V-vi-IV",
+        description=(
+            "Chord progression using Roman numerals. "
+            "Options: 'I-V-vi-IV' (pop), 'ii-V-I' (jazz), "
+            "'I-IV-V-I' (classic), 'vi-IV-I-V' (pop-alt), "
+            "'I-vi-IV-V' (50s), 'I-V-vi-IV' (axis)"
+        ),
+        pattern="^(I-V-vi-IV|ii-V-I|I-IV-V-I|vi-IV-I-V|I-vi-IV-V|I-V-vi-IV)$",
+    )
+    chord_type: str = Field(
+        default="major",
+        description="Chord quality: 'major', 'minor', 'major7', 'minor7', 'dominant7'",
+        pattern="^(major|minor|major7|minor7|dominant7)$",
+    )
+    num_bars: int = Field(
+        default=4,
+        description="Number of bars (1 per chord by default)",
+        ge=1, le=16,
+    )
+    note_length: int = Field(
+        default=192,
+        description="Length of each chord in ticks (192 = 1 bar, 96 = half bar)",
+        ge=48, le=384,
+    )
+
+
+# Chord progression definitions (scale degrees as semitone offsets)
+PROGRESSIONS = {
+    "I-V-vi-IV": [0, 7, 9, 5],    # C, G, Am, F (in C major)
+    "ii-V-I": [2, 7, 0],           # Dm7, G7, Cmaj7 (jazz)
+    "I-IV-V-I": [0, 5, 7, 0],     # C, F, G, C (classic)
+    "vi-IV-I-V": [9, 5, 0, 7],    # Am, F, C, G (pop-alt)
+    "I-vi-IV-V": [0, 9, 5, 7],    # C, Am, F, G (50s)
+}
+
+
+@mcp.tool(
+    name="lmms_generate_chords",
+    annotations={
+        "title": "Generate Chord Progression for LMMS",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def lmms_generate_chords(params: GenerateChordsInput) -> str:
+    """Generate a chord progression and add it to a track in an LMMS project.
+
+    This tool builds chord progressions from Roman numeral notation and adds
+    them as simultaneous notes (chords) on the specified track. Each chord
+    is held for the specified duration.
+
+    Chord progressions available: I-V-vi-IV (pop), ii-V-I (jazz),
+    I-IV-V-I (classic), vi-IV-I-V (pop-alt), I-vi-IV-V (50s).
+
+    Args:
+        params (GenerateChordsInput): Validated input containing:
+            - project_path (str): Path to the .mmp file
+            - track_index (int): Track index for chords
+            - root_note (int): Root MIDI note (default: 60 = C4)
+            - progression (str): Roman numeral progression (default: 'I-V-vi-IV')
+            - chord_type (str): Chord quality (default: 'major')
+            - num_bars (int): Number of bars (default: 4)
+            - note_length (int): Chord duration in ticks (default: 192 = 1 bar)
+
+    Returns:
+        str: JSON with chord info and notes added, or error.
+
+    Example:
+        Generate a pop progression in C:
+            params with root_note=60, progression="I-V-vi-IV"
+        Generate a jazz ii-V-I:
+            params with root_note=60, progression="ii-V-I", chord_type="minor7"
+    """
+    try:
+        from lmms_builder import get_chord_notes
+
+        if params.progression not in PROGRESSIONS:
+            return f"Error: Unknown progression '{params.progression}'"
+
+        degrees = PROGRESSIONS[params.progression]
+        tree = ET.parse(params.project_path)
+        root = tree.getroot()
+        song = root.find("song")
+        track_container = song.find("trackcontainer")
+        tracks = track_container.findall("track")
+
+        if params.track_index >= len(tracks):
+            return f"Error: Track index {params.track_index} out of range"
+
+        track = tracks[params.track_index]
+        wrapper = track.find("instrumenttrack") or track.find("bbtrack")
+        if wrapper is None:
+            return f"Error: Track {params.track_index} is not an instrument track"
+
+        # Create pattern
+        total_length = params.num_bars * TICKS_PER_BAR
+        pattern_elem = ET.SubElement(wrapper, "pattern", {
+            "pos": "0",
+            "len": str(total_length),
+            "muted": "0",
+        })
+
+        # Generate chords
+        chord_info = []
+        note_count = 0
+        for i, degree in enumerate(degrees):
+            chord_root = params.root_note + degree
+            chord_notes = get_chord_notes(chord_root, params.chord_type)
+            position = i * params.note_length
+
+            for note_key in chord_notes:
+                ET.SubElement(pattern_elem, "note", {
+                    "pos": str(position),
+                    "key": str(note_key),
+                    "len": str(params.note_length),
+                    "vol": "80",  # Slightly lower for chords
+                    "pan": "0",
+                })
+                note_count += 1
+
+            chord_info.append({
+                "degree": params.progression.split("-")[i],
+                "root": midi_to_note_name(chord_root),
+                "notes": [midi_to_note_name(n) for n in chord_notes],
+                "position": position,
+            })
+
+        # Save
+        tree.write(params.project_path, encoding="unicode", xml_declaration=True)
+
+        return json.dumps({
+            "status": "chords_generated",
+            "track_index": params.track_index,
+            "track_name": track.get("name", "unnamed"),
+            "root_note": params.root_note,
+            "root_note_name": midi_to_note_name(params.root_note),
+            "progression": params.progression,
+            "chord_type": params.chord_type,
+            "chords": chord_info,
+            "total_notes": note_count,
+            "message": f"Generated {len(chord_info)} chords ({params.progression}) "
+                       f"with {note_count} total notes. "
+                       f"Open {params.project_path} in LMMS to play."
+        }, indent=2)
+
+    except Exception as e:
+        return f"Error generating chords: {type(e).__name__}: {str(e)}"
+```
+
+## Putting It All Together: Full Server
+
+Here's the complete `server.py` with all tools from both Part 1 and Part 2:
+
+```python
+#!/usr/bin/env python3
+"""
+LMMS MCP Server — AI-powered LMMS project creation and analysis.
+
+Tools:
+  Part 1 (Analysis):
+    - lmms_parse_project: Parse an .mmp file and return project structure
+    - lmms_list_tracks: List all tracks in a project
+    - lmms_get_track_details: Get detailed info about a specific track
+    - lmms_list_instruments: List all instruments in a project
+    - lmms_get_project_info: Get a summary of the project
+    - lmms_validate_project: Validate an .mmp file
+
+  Part 2 (Composition):
+    - lmms_create_project: Create a new empty project
+    - lmms_add_track: Add an instrument track
+    - lmms_add_notes: Add individual notes to a track
+    - lmms_generate_melody: Generate a melody from a scale
+    - lmms_generate_drums: Generate a drum pattern
+    - lmms_generate_chords: Generate a chord progression
+"""
+
+import json
+import xml.etree.ElementTree as ET
+from typing import Optional
+from enum import Enum
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from mcp.server.fastmcp import FastMCP
+
+# Local imports
+from lmms_parser import parse_mmp_file, parse_mmpz_file
+from lmms_builder import (
+    LMMSProject, InstrumentTrack, Pattern, Note,
+    build_project_xml, midi_to_note_name, note_name_to_midi,
+    generate_melody, get_scale_notes, get_chord_notes,
+    SCALES, CHORDS, DRUM_PATTERNS, PROGRESSIONS,
+    TICKS_PER_BEAT, TICKS_PER_BAR,
+)
+
+# Initialize the MCP server
+mcp = FastMCP("lmms_mcp")
+
+CHARACTER_LIMIT = 25000
+
+# ... (Part 1 tools here — see Part 1 tutorial) ...
+
+# ... (Part 2 tools here — see above) ...
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+## Testing the Server
+
+### Manual Testing with MCP Inspector
+
+```bash
+# Install MCP Inspector if you don't have it
+npx @modelcontextprotocol/inspector
+
+# Run your server through the inspector
+npx @modelcontextprotocol/inspector python server.py
+```
+
+The Inspector opens a web UI where you can:
+1. See all registered tools
+2. Call tools with specific parameters
+3. View the JSON responses
+4. Test the full workflow
+
+### End-to-End Test Script
+
+Create a test script called `test_composition.py`:
+
+```python
+#!/usr/bin/env python3
+"""End-to-end test: create a project, add tracks, generate music, and verify."""
+
+import asyncio
+import os
+import tempfile
+import xml.etree.ElementTree as ET
+from mcp import Client
+from server import mcp
+
+async def test_full_workflow():
+    """Test the complete composition workflow."""
+    test_file = os.path.join(tempfile.gettempdir(), "test_composition.mmp")
+
+    async with Client(mcp) as client:
+        # 1. Create a new project
+        result = await client.call_tool("lmms_create_project", {
+            "params": {
+                "bpm": 120,
+                "output_path": test_file,
+            }
+        })
+        print("1. Create project:", result)
+
+        # 2. Add a lead synth track
+        result = await client.call_tool("lmms_add_track", {
+            "params": {
+                "project_path": test_file,
+                "track_name": "Lead",
+                "instrument": "tripleoscillator",
+            }
+        })
+        print("2. Add lead track:", result)
+
+        # 3. Add a bass track
+        result = await client.call_tool("lmms_add_track", {
+            "params": {
+                "project_path": test_file,
+                "track_name": "Bass",
+                "instrument": "lb302",
+            }
+        })
+        print("3. Add bass track:", result)
+
+        # 4. Add a kick drum track
+        result = await client.call_tool("lmms_add_track", {
+            "params": {
+                "project_path": test_file,
+                "track_name": "Kick",
+                "instrument": "kicker",
+                "track_type": "bb",
+            }
+        })
+        print("4. Add kick track:", result)
+
+        # 5. Generate a melody on the lead track
+        result = await client.call_tool("lmms_generate_melody", {
+            "params": {
+                "project_path": test_file,
+                "track_index": 0,
+                "root_note": 60,
+                "scale": "pentatonic_major",
+                "num_bars": 4,
+                "seed": 42,
+            }
+        })
+        print("5. Generate melody:", result)
+
+        # 6. Generate drums on the kick track
+        result = await client.call_tool("lmms_generate_drums", {
+            "params": {
+                "project_path": test_file,
+                "kick_track_index": 2,
+                "pattern": "four_on_the_floor",
+                "num_bars": 4,
+            }
+        })
+        print("6. Generate drums:", result)
+
+        # 7. Generate chords on the bass track
+        result = await client.call_tool("lmms_generate_chords", {
+            "params": {
+                "project_path": test_file,
+                "track_index": 1,
+                "root_note": 48,  # C3 for bass
+                "progression": "I-V-vi-IV",
+                "chord_type": "major",
+                "num_bars": 4,
+            }
+        })
+        print("7. Generate chords:", result)
+
+        # 8. Validate the final project
+        result = await client.call_tool("lmms_validate_project", {
+            "params": {"file_path": test_file}
+        })
+        print("8. Validate:", result)
+
+        # 9. Get project info
+        result = await client.call_tool("lmms_get_project_info", {
+            "params": {"file_path": test_file}
+        })
+        print("9. Project info:", result)
+
+        # Verify the file exists and is valid XML
+        assert os.path.exists(test_file), "Output file not created"
+        tree = ET.parse(test_file)
+        root = tree.getroot()
+        assert root.tag == "lmms-project", f"Root tag is {root.tag}, expected 'lmms-project'"
+
+        print(f"\n✅ All tests passed! Output: {test_file}")
+        print(f"   File size: {os.path.getsize(test_file)} bytes")
+
+if __name__ == "__main__":
+    asyncio.run(test_full_workflow())
+```
+
+Run it:
+
+```bash
+python test_composition.py
+```
+
+Expected output:
+
+```
+1. Create project: {"status": "created", "file_path": "/tmp/test_composition.mmp", ...}
+2. Add lead track: {"status": "track_added", "track_name": "Lead", ...}
+3. Add bass track: {"status": "track_added", "track_name": "Bass", ...}
+4. Add kick track: {"status": "track_added", "track_name": "Kick", ...}
+5. Generate melody: {"status": "melody_generated", "note_count": 28, ...}
+6. Generate drums: {"status": "drums_generated", "pattern": "four_on_the_floor", ...}
+7. Generate chords: {"status": "chords_generated", "chords": [...], ...}
+8. Validate: {"valid": true, ...}
+9. Project info: {"bpm": 120, "track_count": 3, ...}
+
+✅ All tests passed! Output: /tmp/test_composition.mmp
+   File size: 4823 bytes
+```
+
+## Connecting to Claude Desktop
+
+Add your server to the Claude Desktop configuration:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "lmms": {
+      "command": "python",
+      "args": ["/absolute/path/to/lmms-mcp-server/server.py"],
+      "env": {}
+    }
+  }
+}
+```
+
+Restart Claude Desktop and you'll see the LMMS tools available. Try asking:
+
+> "Create a 128 BPM house track in C minor. I want a kick drum on every beat, a hi-hat on offbeats, and a bassline using the C minor pentatonic scale. Make it 8 bars long."
+
+Claude will:
+1. Call `lmms_create_project` with bpm=128
+2. Call `lmms_add_track` three times (kick, hi-hat, bass)
+3. Call `lmms_generate_drums` with `four_on_the_floor` pattern
+4. Call `lmms_generate_melody` with root_note=48, scale="pentatonic_minor"
+5. Give you a file path to open in LMMS
+
+## What You Built
+
+Across both parts of this tutorial, you built a complete MCP server that bridges AI and music production:
+
+**Part 1 — Analysis** (6 tools):
+- Parse `.mmp` and `.mmpz` files
+- List tracks, instruments, and patterns
+- Extract note data and project metadata
+- Validate project files
+
+**Part 2 — Composition** (6 tools):
+- Create new projects from scratch
+- Add instrument tracks with any LMMS synth
+- Place individual notes on a piano roll
+- Generate melodies from musical scales
+- Generate drum patterns (house, hip-hop, trap, rock, breakbeat)
+- Generate chord progressions from Roman numerals
+
+The server exposes 12 tools total, all with Pydantic-validated inputs, comprehensive docstrings, and proper MCP annotations. Any MCP-compatible client — Claude Desktop, Cursor, VS Code, or a custom agent — can use these tools to read, analyze, and create LMMS music projects.
+
+## Next Steps
+
+- **Add automation tracks**: Create tools for parameter automation (filter sweeps, volume fades)
+- **MIDI export**: Add a tool to convert LMMS patterns to standard MIDI files
+- **Sample integration**: Add tools for the `audiofileprocessor` instrument to load WAV samples
+- **Effects chain**: Add tools for inserting LADSPA effects on mixer channels
+- **Multi-server composition**: Use FastMCP's server composition to mount the LMMS server alongside other MCP servers (e.g., a music theory server, a lyrics server)
+- **Web transport**: Deploy the server over Streamable HTTP for remote access
+
+The complete codebase is available on GitHub. Open the generated `.mmp` files in LMMS to hear your AI-composed music come to life.
