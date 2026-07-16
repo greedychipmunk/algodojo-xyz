@@ -30,12 +30,18 @@ The Model Context Protocol (MCP) is the standard way to connect AI agents to ext
 
 Here's what the architecture looks like:
 
-```
-┌──────────────┐     MCP (stdio)     ┌──────────────────┐     reads/writes     ┌────────────────┐
-│  Claude or   │ ◄──────────────────► │  LMMS MCP Server │ ◄──────────────────► │  .mmp / .mmpz  │
-│  any MCP     │   JSON-RPC over      │  (FastMCP +      │    XML / zlib        │  project files  │
-│  client      │   stdin/stdout       │   Python)        │                      │  on disk        │
-└──────────────┘                      └──────────────────┘                      └────────────────┘
+```mermaid
+flowchart LR
+    Client["Claude Desktop\nor any MCP Client"]
+    Server["LMMS MCP Server\nFastMCP + Python"]
+    Files[".mmp / .mmpz\nProject Files on Disk"]
+
+    Client <-- "JSON-RPC over stdio" --> Server
+    Server <-- "XML / zlib" --> Files
+
+    style Client fill:#f59e0b22,stroke:#f59e0b,stroke-width:2px,color:#f59e0b
+    style Server fill:#0c0a09,stroke:#f59e0b,stroke-width:2px,color:#f5f5f4
+    style Files fill:#0c0a09,stroke:#78716c,stroke-width:2px,color:#a8a29e
 ```
 
 ## Prerequisites
