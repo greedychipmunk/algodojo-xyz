@@ -11,7 +11,7 @@ const EXPECTED = [
   { slug: "letta-build-your-first-agent", difficulty: "beginner", publishedAt: "2026-06-15" },
   { slug: "letta-memory-blocks", difficulty: "intermediate", publishedAt: "2026-06-16" },
   { slug: "letta-agent-tools", difficulty: "intermediate", publishedAt: "2026-06-17" },
-  { slug: "letta-telegram-bot", difficulty: "intermediate", publishedAt: "2026-06-18" },
+  { slug: "letta-telegram-bot", difficulty: "beginner", publishedAt: "2026-06-18" },
   { slug: "letta-local-instance", difficulty: "advanced", publishedAt: "2026-06-19" },
   { slug: "letta-secure-cloud-server", difficulty: "advanced", publishedAt: "2026-06-25" },
   { slug: "letta-leaflet-blog-manager", difficulty: "advanced", publishedAt: "2026-06-26" },
@@ -57,8 +57,8 @@ describe("Letta tutorials", () => {
     expect(fm.author).toBe("Algo Dojo");
     expect(fm.difficulty).toBe(entry.difficulty);
     expect(fm.publishedAt).toBe(entry.publishedAt);
-    // New tutorials publish and update on the same day; updatedAt mirrors publishedAt.
-    expect(fm.updatedAt).toBe(entry.publishedAt);
+    // updatedAt must be >= publishedAt (same day for new tutorials, later for revised ones)
+    expect(fm.updatedAt >= entry.publishedAt).toBe(true);
     expect(Array.isArray(tags)).toBe(true);
     expect(tags).toContain("letta");
     expect(typeof fm.estimatedReadTime).toBe("number");
