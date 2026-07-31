@@ -2,7 +2,6 @@ import { HeroSection } from "@/components/sections/hero-section";
 import { FeaturesSection } from "@/components/sections/features-section";
 import { StatsSection } from "@/components/sections/stats-section";
 import { TutorialsPreview } from "@/components/sections/tutorials-preview";
-import { TestimonialSection } from "@/components/sections/testimonial-section";
 import { CtaSection } from "@/components/sections/cta-section";
 import { NewsletterSection } from "@/components/sections/newsletter-section";
 import { getAllTutorials } from "@/lib/content";
@@ -24,7 +23,6 @@ export default async function HomePage() {
       <FeaturesSection />
       <StatsSection />
       <TutorialsPreview tutorials={featured} />
-      <TestimonialSection />
       <CtaSection
         title="Ready to Optimize Your Workflows?"
         description="Let's discuss how agentic AI can transform your business processes."
