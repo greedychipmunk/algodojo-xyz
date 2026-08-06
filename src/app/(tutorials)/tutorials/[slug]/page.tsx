@@ -114,9 +114,7 @@ export default async function TutorialDetailPage({
             </div>
 
             <aside className="hidden lg:block min-w-0">
-              <div className="sticky top-24">
-                <TableOfContents headings={extractHeadings(contentHtml)} />
-              </div>
+              <TableOfContents headings={extractHeadings(contentHtml)} />
             </aside>
           </div>
         </Container>
