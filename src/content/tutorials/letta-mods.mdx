@@ -1,0 +1,796 @@
+---
+title: "Extend the Letta Code Harness with Custom Mods"
+slug: "letta-mods"
+description: "Mods are trusted local code that extend the Letta Code harness itself — adding custom tools, slash commands, UI panels, event hooks, permission overlays, and model providers. Learn the mod architecture, build three working mods from scratch, and understand when to use a mod versus a skill."
+tier: "free"
+category: "ai"
+tags: ["letta", "ai-agents", "mods", "harness", "typescript", "tools", "commands", "intermediate"]
+difficulty: "intermediate"
+estimatedReadTime: 30
+publishedAt: "2026-07-22"
+updatedAt: "2026-07-22"
+author: "Algo Dojo"
+---
+
+## What You're Building
+
+Skills teach your agent *what to do*. Mods change *how the harness itself behaves*.
+
+A mod is a TypeScript file that runs inside your local Letta Code process. It can register new tools the agent calls autonomously, slash commands you invoke explicitly, UI panels that display persistent state, event hooks that react to conversation lifecycle, permission overlays that gate tool execution, and custom model providers for local agents.
+
+In this tutorial you'll build three working mods from scratch:
+
+1. **A slash command** — `/branch-summary` that shows your current git branch status
+2. **A model tool** — `repo_notes_search` that lets the agent search local repo notes autonomously
+3. **An event hook** — a `tool_start` transformer that rewrites `npm test` to `bun test` before execution
+
+Along the way you'll learn the mod architecture, the capability system, how to scope state correctly, and when to choose a mod over a skill.
+
+If you've completed [Build Your First Letta Agent](/tutorials/letta-build-your-first-agent) and [Give Your Letta Agent Custom Tools](/tutorials/letta-agent-tools), you understand how agents use tools and memory. Mods extend the harness that runs those agents — the layer above the model.
+
+## Mods vs. Skills: When to Use Which
+
+This distinction matters more than anything else in this tutorial:
+
+| Need | Build |
+|------|-------|
+| Agent should autonomously call a local capability | **Mod tool** |
+| You want `/foo` to send a prompt or run local logic | **Mod command** |
+| Reusable agent workflow (e.g., a database migration procedure) | **Skill** + thin mod command launcher |
+| Command should work while the main agent is busy | **Mod command** with `runWhenBusy: true` + forked conversation |
+| Show transient output above the input bar | **Mod panel** |
+| React to conversation lifecycle or transform outbound turns | **Mod event** |
+| Enforce dynamic allow/ask/deny policy for tool calls | **Mod permission overlay** |
+| Add a custom model/API provider for local agents | **Mod provider** (local agents only) |
+| Teach the agent a durable, repeatable procedure | **Skill**, not a mod |
+
+**Rule of thumb**: If it changes the harness (UI, commands, providers, event hooks), it's a mod. If it teaches the agent a procedure (how to deploy, how to parse a format), it's a skill. When in doubt, default to a skill — skills are portable across agents and harnesses. Mods are harness-specific.
+
+## The Mod Architecture
+
+Every mod is a single file that exports an `activate` function. The function receives a `letta` object with capability-gated APIs, registers what it needs, and returns a cleanup function for disposers.
+
+### Core Shape
+
+```typescript
+export default function activate(letta) {
+  const disposers = [];
+
+  if (letta.capabilities.tools) {
+    disposers.push(letta.tools.register(/* ... */));
+  }
+
+  if (letta.capabilities.commands) {
+    disposers.push(letta.commands.register(/* ... */));
+  }
+
+  return () => {
+    for (const dispose of disposers.reverse()) dispose();
+  };
+}
+```
+
+### The Capability System
+
+Capabilities vary by host surface. Not every surface loads every capability — the TUI can load tools, commands, events, UI, and providers, but the desktop listener loads tools, commands, and providers without panel UI. Guard each registration on the capabilities it needs:
+
+```typescript
+letta.capabilities.tools           // tool registration
+letta.capabilities.commands         // slash command registration
+letta.capabilities.events.lifecycle // conversation_open, conversation_close
+letta.capabilities.events.tools     // tool_start, tool_end
+letta.capabilities.events.turns     // turn_start
+letta.capabilities.events.compact   // compact_start, compact_end
+letta.capabilities.events.llm       // llm_start, llm_end
+letta.capabilities.permissions      // permission overlays
+letta.capabilities.providers        // custom model providers
+letta.capabilities.ui.panels       // UI panels
+```
+
+Guard each registration on **every** capability its behavior depends on — not just the one that registers it. A command that opens a panel must guard on both `letta.capabilities.commands` and `letta.capabilities.ui.panels`, otherwise it's advertised on a host that can't render the panel and silently does nothing.
+
+### Where Mods Live
+
+| Location | Use when |
+|----------|----------|
+| `~/.letta/mods/foo.ts` | The behavior should apply to local sessions on this machine (default) |
+| `$MEMORY_DIR/mods/foo.ts` | The behavior should travel with one agent's MemFS |
+
+Do not create project-scoped mods. Mods are harness-level extensions, not project-specific code.
+
+### The Scoped Context
+
+Dynamic agent/conversation/workspace state is passed as `ctx` to tool, command, and event callbacks. Use scoped handles instead of reading global state:
+
+```typescript
+ctx.conversation          // conversation operations
+ctx.conversation.getHistory()  // recent messages
+ctx.conversation.fork()        // fork for background model work
+ctx.cwd                   // invocation workspace
+ctx.agent                  // agent metadata
+ctx.model                  // model metadata
+ctx.signal                 // AbortSignal for long-running work
+```
+
+Do not import `@/backend`, `@/cli`, or other Letta Code internals from mod files. Use the public mod API only.
+
+## Step 1: A Slash Command Mod
+
+Let's start with the simplest mod: a `/branch-summary` command that shows your current git branch status and recent commits. This is an **output-only command** — it runs locally and prints results without contacting the model.
+
+### Create the Mod File
+
+Create `~/.letta/mods/branch-summary.ts`:
+
+```typescript
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+export default function activate(letta) {
+  if (!letta.capabilities.commands) return;
+
+  return letta.commands.register({
+    id: "branch-summary",
+    description: "Show current git branch, working tree status, and recent commits",
+    async run(ctx) {
+      const [{ stdout: status }, { stdout: log }] = await Promise.all([
+        execFileAsync("git", ["status", "--short", "--branch"], { cwd: ctx.cwd }),
+        execFileAsync("git", ["log", "--oneline", "-5"], { cwd: ctx.cwd }),
+      ]);
+
+      return {
+        type: "output",
+        output: ["## Branch", status.trim(), "", "## Recent commits", log.trim()].join("\n"),
+      };
+    },
+  });
+}
+```
+
+### How It Works
+
+- **`letta.capabilities.commands`** — guards the registration so the mod is skipped on hosts that don't support commands
+- **`id: "branch-summary"`** — the command is invoked as `/branch-summary` (no leading slash in the ID)
+- **`ctx.cwd`** — the current working directory, scoped to the invocation
+- **`{ type: "output" }`** — prints local text without sending anything to the model
+- **`execFile`** — preferred over shell strings for safety and clarity
+- The return value is the unregister function, which serves as the disposer
+
+### Reload and Test
+
+After saving the file, run:
+
+```text
+/reload
+```
+
+Then invoke the command:
+
+```text
+/branch-summary
+```
+
+You'll see output like:
+
+```text
+## Branch
+## main...origin/main
+
+## Recent commits
+a1b2c3d feat: add new feature
+e4f5g6h fix: resolve edge case
+...
+```
+
+### Command Result Types
+
+Commands can return three types of results:
+
+| Type | What it does | When to use |
+|------|-------------|-------------|
+| `{ type: "prompt", content: "..." }` | Sends content to the agent as the next turn | Normal slash shortcuts that should trigger agent work |
+| `{ type: "output", output: "..." }` | Prints local text, no model contact | Local results, status checks, diagnostics |
+| `{ type: "handled" }` | Command owns its own UI/side effects | Panel commands, busy-safe commands |
+
+### Prompt Commands
+
+If you want a command that sends a prompt to the agent instead of printing output, use `type: "prompt"`:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.commands) return;
+
+  return letta.commands.register({
+    id: "review",
+    description: "Review current git changes",
+    args: "[focus]",
+    run(ctx) {
+      const focus = ctx.args.trim();
+      return {
+        type: "prompt",
+        content: focus
+          ? `Review current git changes. Focus on ${focus}.`
+          : "Review current git changes. Focus on correctness issues.",
+        systemReminder: true,
+      };
+    },
+  });
+}
+```
+
+The `args` field shows argument hints in the command picker. `ctx.args` contains whatever the user typed after the command name. `systemReminder: true` injects the content as a system reminder rather than a visible user message.
+
+## Step 2: A Model Tool Mod
+
+Commands are invoked by the human. Tools are invoked by the **model** — the agent decides when to call them. Let's build a `repo_notes_search` tool that lets the agent search a local `notes/` directory for keywords.
+
+Create `~/.letta/mods/repo-notes-search.ts`:
+
+```typescript
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+export default function activate(letta) {
+  if (!letta.capabilities.tools) return;
+
+  return letta.tools.register({
+    name: "repo_notes_search",
+    description: "Search local repo notes for a query and return matching snippets. Use when the user asks to search notes or find information in the notes directory.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    requiresApproval: false,
+    parallelSafe: true,
+    async run(ctx) {
+      const query = String(ctx.args.query ?? "").trim();
+      if (!query) return { status: "error", content: "query is required" };
+
+      try {
+        const { stdout } = await execFileAsync(
+          "rg",
+          ["--line-number", "--max-count", "20", query, "notes"],
+          { cwd: ctx.cwd },
+        );
+        return stdout.trim() || "No matches.";
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === 1) {
+          return "No matches.";
+        }
+        throw error;
+      }
+    },
+  });
+}
+```
+
+### How It Works
+
+- **`letta.capabilities.tools`** — guards so the mod is skipped on hosts without tool support
+- **`name: "repo_notes_search"`** — the tool name the model sees and decides whether to call
+- **`description`** — the most important field; the model uses this to decide when the tool is relevant. Include trigger keywords.
+- **`parameters`** — JSON Schema object. Use `additionalProperties: false` when possible.
+- **`requiresApproval: false`** — read-only, low-risk tools don't need approval
+- **`parallelSafe: true`** — safe to run in parallel with other read-only tools
+- **`ctx.args.query`** — the arguments passed by the model, typed by the schema
+
+### Tool Approval Levels
+
+| Setting | Behavior |
+|---------|----------|
+| `requiresApproval: false` | Read-only, low-risk — no approval needed |
+| `requiresApproval: true` | Mutating or risky — requires human approval (default) |
+| `approvalPolicy: "alwaysAsk"` | Always asks for approval, even in unrestricted/yolo mode |
+
+Use `approvalPolicy: "alwaysAsk"` for tools that represent a human gate rather than a risky operation — for example, an `exit_plan_mode` tool that should always require explicit approval.
+
+### Mutating Tools
+
+For tools that modify files or have side effects, require approval and avoid `parallelSafe`:
+
+```typescript
+letta.tools.register({
+  name: "format_file",
+  description: "Format a specific file in the current workspace using the project's formatter.",
+  parameters: {
+    type: "object",
+    properties: { path: { type: "string", description: "File path to format" } },
+    required: ["path"],
+    additionalProperties: false,
+  },
+  requiresApproval: true,
+  parallelSafe: false,
+  async run(ctx) {
+    // Implementation...
+    return "Formatted successfully.";
+  },
+});
+```
+
+## Step 3: An Event Hook Mod
+
+Events let your mod react to what's happening in the session without the human invoking a command. Let's build a `tool_start` transformer that automatically rewrites `npm test` to `bun test` before any Bash tool executes.
+
+Create `~/.letta/mods/npm-to-bun.ts`:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.events.tools) return;
+
+  return letta.events.on("tool_start", (event) => {
+    if (event.toolName !== "Bash") return;
+    if (typeof event.args.command !== "string") return;
+
+    // Rewrite npm test to bun test
+    if (event.args.command.includes("npm test")) {
+      const newCommand = event.args.command.replaceAll("npm test", "bun test");
+      return { args: { ...event.args, command: newCommand } };
+    }
+  });
+}
+```
+
+### How It Works
+
+- **`letta.capabilities.events.tools`** — guards the registration for tool events
+- **`tool_start`** fires immediately before a tool executes, after approval classification
+- The handler inspects `event.toolName` and `event.args`, then returns replacement args
+- Returning `{ args: ... }` replaces the tool's arguments before execution
+- Returning nothing (or `undefined`) leaves the args unchanged
+
+### Supported Events
+
+| Event | When it fires | What handlers can do |
+|-------|---------------|----------------------|
+| `conversation_open` | Session starts, resumes, or forks | Notification only |
+| `conversation_close` | Session ends | Notification only |
+| `tool_start` | Before a tool executes | Transform tool arguments |
+| `tool_end` | After a tool produces a result | Inspect or replace the result |
+| `turn_start` | Before a user-message turn is submitted | Transform or cancel the turn |
+| `compact_start` | Before conversation compaction | Notification, checkpoint state |
+| `compact_end` | After compaction completes | Notification |
+| `llm_start` | Before each provider request | Notification |
+| `llm_end` | After a provider request completes | Notification |
+
+### Tool End: Rewriting Results
+
+`tool_end` fires after a tool produces a result but before the agent sees it. You can inspect and rewrite the output:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.events.tools) return;
+
+  return letta.events.on("tool_end", (event) => {
+    if (event.toolName !== "Bash" || event.status !== "success") return;
+    if (typeof event.args.command !== "string") return;
+
+    // Redact secrets from tool output before the agent sees them
+    return { result: { status: "success", output: redactSecrets(event.output) } };
+  });
+}
+
+function redactSecrets(text: string): string {
+  return text
+    .replace(/sk-[a-zA-Z0-9]{48}/g, "sk-***REDACTED***")
+    .replace(/ghp_[a-zA-Z0-9]{36}/g, "ghp_***REDACTED***");
+}
+```
+
+The first handler that returns a `result` wins; later handlers are shadowed.
+
+### Turn Start: Transforming User Messages
+
+`turn_start` fires before outbound turns that include a user message. You can transform the input, append context, or cancel the turn entirely:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.events.turns) return;
+
+  return letta.events.on("turn_start", (event) => {
+    // Append the current timestamp to every user message
+    event.input = event.input.map((item) =>
+      item.type !== "approval" && item.role === "user"
+        ? {
+            ...item,
+            content: appendTimestamp(item.content),
+          }
+        : item,
+    );
+  });
+}
+
+function appendTimestamp(content: unknown): unknown {
+  if (typeof content === "string") {
+    return `${content}\n\n[Sent at ${new Date().toLocaleString()}]`;
+  }
+  return content;
+}
+```
+
+You can also cancel a turn:
+
+```typescript
+letta.events.on("turn_start", (event) => {
+  if (!isPlanModeActive(event.conversationId)) {
+    return { cancel: { reason: "Run /plan first." } };
+  }
+});
+```
+
+### Rules for Events
+
+- Do not block user flow unless the event's typed contract explicitly supports blocking
+- Do not use lifecycle events for safety decisions — use permission overlays instead
+- Catch expected local errors if the user-facing outcome matters
+- `turn_start` is powerful trusted code — keep transforms narrow and unsurprising
+- `compact_start` and `compact_end` only fire on the local backend, not on Letta Cloud — guard with `letta.capabilities.events.compact` for portable mods
+
+## Combining Capabilities
+
+Most real mods combine multiple capabilities. Let's build a mod that registers both a tool (for autonomous model use) and a command (for explicit human invocation), sharing a common helper function.
+
+Create `~/.letta/mods/git-helper.ts`:
+
+```typescript
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+async function summarizeBranch(cwd: string): Promise<string> {
+  const [{ stdout: status }, { stdout: log }] = await Promise.all([
+    execFileAsync("git", ["status", "--short", "--branch"], { cwd }),
+    execFileAsync("git", ["log", "--oneline", "-5"], { cwd }),
+  ]);
+  return ["## Branch", status.trim(), "", "## Recent commits", log.trim()].join("\n");
+}
+
+export default function activate(letta) {
+  const disposers = [];
+
+  // Tool: the model calls this autonomously when it needs branch info
+  if (letta.capabilities.tools) {
+    disposers.push(
+      letta.tools.register({
+        name: "branch_summary",
+        description: "Summarize the current git branch, working tree status, and recent commits. Use when repository state matters.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        requiresApproval: false,
+        parallelSafe: true,
+        async run(ctx) {
+          return summarizeBranch(ctx.cwd);
+        },
+      }),
+    );
+  }
+
+  // Command: the human invokes /branch-summary explicitly
+  if (letta.capabilities.commands) {
+    disposers.push(
+      letta.commands.register({
+        id: "branch-summary",
+        description: "Show current branch summary",
+        async run(ctx) {
+          return { type: "output", output: await summarizeBranch(ctx.cwd) };
+        },
+      }),
+    );
+  }
+
+  return () => {
+    for (const dispose of disposers.reverse()) dispose();
+  };
+}
+```
+
+The shared `summarizeBranch` function lives inside the mod file. The tool and command both call it, but the tool returns a string (for the model to use) while the command returns `{ type: "output" }` (for the human to read).
+
+## UI Panels
+
+Panels are text blocks placed around the input bar. They're optional — the desktop listener disables panel UI. Always guard with `letta.capabilities.ui.panels`.
+
+### A Simple Status Panel
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.ui.panels) return;
+
+  let status = "Ready";
+  const panel = letta.ui.openPanel({
+    id: "my-status",
+    order: 100,
+    render: () => status,
+  });
+
+  // Update every 30 seconds
+  const timer = setInterval(() => {
+    status = `Uptime: ${Math.round(process.uptime())}s`;
+    panel.update();
+  }, 30_000);
+
+  return () => {
+    clearInterval(timer);
+    panel.close();
+  };
+}
+```
+
+### Panel Placement
+
+The `order` field controls where the panel appears:
+
+| Order value | Position |
+|-------------|----------|
+| `order > 1` | Additive panels above the input (higher = nearer top, default 100) |
+| `order === 1` | Replaces the dreaming/reflection indicator |
+| `order === 0` | The statusline slot (use `customizing-statusline` instead) |
+| `order < 0` | Stacks below the primary line (-1 closest) |
+
+A panel whose `render` returns empty (`""`, `[]`, or only blank lines) is hidden.
+
+### Panel + Event Composition
+
+Combine lifecycle events with a panel to show live conversation state:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.events.lifecycle || !letta.capabilities.ui.panels) return;
+
+  const disposers = [];
+  let conversation = "";
+
+  const panel = letta.ui.openPanel({
+    id: "conversation-status",
+    order: 100,
+    render: ({ width, row }) => row("status", conversation, width),
+  });
+  disposers.push(() => panel.close());
+
+  disposers.push(
+    letta.events.on("conversation_open", (event) => {
+      conversation = `Session: ${event.reason}`;
+      panel.update();
+    }),
+  );
+
+  disposers.push(
+    letta.events.on("conversation_close", (event) => {
+      conversation = "Closed";
+      panel.update();
+    }),
+  );
+
+  return () => {
+    for (const dispose of disposers.reverse()) dispose();
+  };
+}
+```
+
+## Permission Overlays
+
+Permission overlays let your mod participate in tool approval decisions. They run before the approval UI and again before execution on final tool arguments.
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.permissions) return;
+
+  return letta.permissions.register({
+    id: "read-only-mode",
+    description: "Allow read-only tools, deny everything else",
+    check(event) {
+      if (!isReadOnlyMode(event.conversationId)) return;
+
+      if (isReadOnlyTool(event.toolName, event.args)) {
+        return { decision: "allow" };
+      }
+
+      return {
+        decision: "deny",
+        reason: "Read-only mode is active. Only read-only tools are permitted.",
+      };
+    },
+  });
+}
+```
+
+### Composition Rules
+
+Across multiple overlays:
+
+- `deny` wins
+- then `ask`
+- then `allow`
+- `undefined` means no opinion
+
+User-configured hard denials still win before mod overlays. Mod overlays can override normal auto-allow behavior, including unrestricted/yolo mode.
+
+## Custom Model Providers
+
+Provider mods add custom model/API providers for **local agents only**. They do not add providers for agents managed through the Letta API.
+
+```typescript
+// ~/.letta/mods/kilo-provider.ts
+export default function activate(letta) {
+  if (!letta.capabilities.providers) return;
+
+  return letta.providers.register("kilo", {
+    name: "Kilo",
+    description: "Connect to Kilo's OpenAI-compatible API",
+    api: "openai-completions",
+    baseUrl: "https://api.kilo.example/v1",
+    apiKey: "KILO_API_KEY", // env var name, not the raw secret
+    authHeader: true,
+    models: [
+      {
+        id: "kilo-code",
+        name: "Kilo Code",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192,
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+        },
+      },
+    ],
+    connect: {
+      fields: [{ key: "apiKey", label: "Kilo API Key", secret: true }],
+    },
+  });
+}
+```
+
+After `/reload`, the provider appears in `/connect` and the desktop Connect model picker. Model handles are `<provider-id>/<model-id>`, e.g., `kilo/kilo-code`.
+
+**Key rules:**
+
+- Always guard with `letta.capabilities.providers`
+- Keep provider registration independent from commands/tools/UI — the desktop listener loads provider-only mods
+- `apiKey: "ENV_VAR"` resolves `process.env.ENV_VAR` when present, or lets `/connect` save a local key
+- Do not hardcode real secrets
+
+## Busy-Safe Commands
+
+Commands with `runWhenBusy: true` can work while the main agent is processing. They must **not** return `prompt` (which would interfere with the active run). Instead, return `{ type: "handled" }` quickly and use a forked conversation for background model work:
+
+```typescript
+export default function activate(letta) {
+  if (!letta.capabilities.commands) return;
+
+  return letta.commands.register({
+    id: "side-question",
+    description: "Ask a side question while the main agent is busy",
+    runWhenBusy: true,
+    async run(ctx) {
+      const input = ctx.args.trim();
+      if (!input) return { type: "output", output: "Usage: /side-question <question>" };
+
+      // Fork the conversation for independent background work
+      const forked = await ctx.conversation.fork({ hidden: true });
+      const stream = await forked.sendMessageStream([
+        { role: "user", content: input },
+      ]);
+
+      // Collect the response
+      let response = "";
+      for await (const chunk of stream) {
+        if (chunk.type === "text") response += chunk.text;
+      }
+
+      return { type: "output", output: response };
+    },
+  });
+}
+```
+
+Do not send directly to the active conversation from a busy command — fork first unless the user explicitly asked to affect the main conversation.
+
+## Diagnostics
+
+Use `letta.diagnostics.report()` sparingly for mod setup or runtime problems an agent should inspect:
+
+```typescript
+export default function activate(letta) {
+  if (!process.env.MY_API_KEY) {
+    letta.diagnostics.report({
+      message: "MY_API_KEY is not set — mod will run in degraded mode",
+      severity: "warning",
+    });
+  }
+  // ...
+}
+```
+
+Agents can inspect diagnostics at:
+
+```text
+~/.letta/mods/diagnostics/latest.json
+```
+
+Keep messages short and actionable. Default severity is `"error"`; use `"warning"` only for optional or degraded behavior.
+
+## Debugging and Recovery
+
+If a mod breaks startup or command handling, start Letta Code with mods disabled:
+
+```bash
+letta --no-mods
+```
+
+Or:
+
+```bash
+LETTA_DISABLE_MODS=1 letta
+```
+
+This lets you fix or remove the problematic mod file and restart normally.
+
+## Packaging and Distribution
+
+Direct mod files in `~/.letta/mods/` are the default authoring path. If you want to share, publish, or distribute a mod with third-party dependencies, package it:
+
+```bash
+letta mods package ~/.letta/mods/my-mod.ts --name my-mod
+```
+
+This scaffolds the mod file into a distributable package. Installed packages can be managed with:
+
+```bash
+letta mods list                    # List active mod files and installed packages
+letta mods enable <mod>            # Enable a disabled package
+letta mods disable <mod>           # Disable without removing
+letta mods update <mod>            # Update in place
+letta mods remove <mod>            # Remove a package
+```
+
+You can also install published mods from npm:
+
+```bash
+letta install npm:@letta-ai/image-understanding    # Vision for text-only models
+letta install npm:@letta-ai/memfs-search           # Keyword + semantic memory search
+letta install npm:@letta-ai/plan-mode              # Plan-before-execute workflow
+```
+
+Run `/reload` after installing to activate.
+
+## Pre-Flight Checklist
+
+Before finishing a mod, verify:
+
+- The mod has one clear owner/file and does not mix unrelated features
+- Command and tool IDs are valid lowercase slugs (no leading slash for commands)
+- Tool descriptions explain when the model should call them
+- JSON schemas are object schemas with useful descriptions
+- Optional UI/event APIs are capability-guarded
+- Each registration is guarded by every capability its behavior depends on
+- Timers, intervals, event registrations, and panels are cleaned up in a disposer
+- Busy commands return `{ type: "handled" }`, not `prompt`
+- Background model work uses a forked conversation
+- Local shell/file work is scoped to `ctx.cwd`
+- Errors shown to the user are short and actionable
+- Direct mod files don't assume third-party npm packages are available
+
+## Where to Go Next
+
+You now have the tools to extend the Letta Code harness itself. A few directions from here:
+
+- **Install community mods** — browse the mods catalog with `letta mods list` and try packages like `@letta-ai/plan-mode` or `@letta-ai/memfs-search`
+- **Combine mods with skills** — use a thin mod command as a launcher for a skill-based workflow. The mod handles the `/foo` invocation; the skill contains the actual procedure.
+- **Add a custom provider** — if you're running a local model or using a provider that isn't built into Letta Code, write a provider mod to make it available to your local agents
+- **Secure your setup** — [Securely Run a Letta Server in the Cloud with Tailscale](/tutorials/letta-secure-cloud-server) shows you how to run Letta on a VPS. Mods work the same way on a remote server.
+- **Teach your agent new skills** — [Teach Your Letta Agent New Skills](/tutorials/letta-skill-learning) covers the skill system, which complements mods: skills teach the agent *what to do*, mods change *how the harness behaves*.
+- **Back up your agent's memory** — [Back Up Your Letta Agent Memory to GitHub](/tutorials/letta-backup-memory-github) ensures your agent's accumulated knowledge survives disasters.
