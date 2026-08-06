@@ -73,7 +73,7 @@ export function TableOfContents({ headings }: TableOfContentsProps) {
   }
 
   return (
-    <aside className="rounded-xl border border-border bg-bg-card p-4 shadow-card lg:sticky lg:top-24 lg:p-6">
+    <aside className="rounded-xl border border-border bg-bg-card p-4 shadow-card lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:p-6">
       <div className="flex items-center justify-between gap-3 lg:mb-4">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-text-muted">
           On this page
