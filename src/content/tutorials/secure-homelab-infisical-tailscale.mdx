@@ -327,15 +327,47 @@ The Infisical CLI lets you pull secrets from the terminal and inject them into D
 Install the CLI on your homelab server:
 
 ```bash
-# macOS / Linux
+# macOS
 brew install infisical/get-cli/infisical
 
-# Or via npm
+# Or via npm (any OS with Node.js)
 npm install -g infisical
 
 # Or download the binary directly
 curl -fsSL https://infisical.com/install.sh | sh
 ```
+
+### Linux Package Installation
+
+If your homelab server runs Debian/Ubuntu or a RHEL-based distribution, you can install the Infisical CLI as a native Linux package instead of using the methods above. This is the recommended approach for production servers — it gives you version-pinned installs, clean upgrades, and a system-managed binary.
+
+**Debian/Ubuntu (AMD64):**
+
+```bash
+# Add the Infisical repository
+curl -1sLf 'https://artifacts-infisical-core.infisical.com/setup.deb.sh' | sudo -E bash
+
+# Install the Infisical CLI
+sudo apt-get update && sudo apt-get install -y infisical-core
+```
+
+**RHEL/CentOS/Amazon Linux (AMD64):**
+
+```bash
+# Add the Infisical repository
+curl -1sLf 'https://artifacts-infisical-core.infisical.com/setup.rpm.sh' | sudo -E bash
+
+# Install the Infisical CLI
+sudo yum install infisical-core
+```
+
+Verify the installation:
+
+```bash
+infisical-ctl help
+```
+
+For production use, lock to a specific version to ensure consistency. All versions from `infisical-core-0.150.0` and above are available in the official Infisical repository. You can view available versions on the [Infisical GitHub releases page](https://github.com/Infisical/infisical/releases).
 
 Authenticate with your self-hosted instance:
 
