@@ -82,11 +82,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             <h1 className="text-3xl font-bold sm:text-4xl lg:text-5xl">
               {post.title}
             </h1>
-            {post.description && (
-              <p className="mt-4 text-lg text-text-secondary">
-                {post.description}
-              </p>
-            )}
             <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-text-muted">
               <span>By {AUTHOR.name}</span>
               <time dateTime={post.publishedAt}>
