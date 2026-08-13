@@ -71,6 +71,7 @@ describe("toPost", () => {
       publishedAt: "2026-07-03T20:45:21.778Z",
       site: "at://did:plc:abc/site.standard.publication/pub1",
       markdown: "# A Post\n\nBody with a\n\n```json\n{}\n```\n",
+      uri: "at://did:plc:abc/site.standard.document/3mprg2hdytk23",
     });
   });
 
@@ -82,6 +83,119 @@ describe("toPost", () => {
     const post = toPost(record);
     expect(post.tags).toEqual([]);
     expect(post.markdown).toBe("");
+    expect(post.uri).toBe("at://did:plc:abc/site.standard.document/rk");
+  });
+
+  test("parses a valid coverImage blob", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        coverImage: {
+          $type: "blob",
+          ref: { $link: "bafkreiexample123" },
+          mimeType: "image/jpeg",
+          size: 245678,
+        },
+      },
+    };
+    expect(toPost(record).coverImage).toEqual({
+      cid: "bafkreiexample123",
+      mimeType: "image/jpeg",
+      size: 245678,
+    });
+  });
+
+  test("returns undefined for coverImage missing required fields", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        coverImage: { $type: "blob", mimeType: "image/jpeg" },
+      },
+    };
+    expect(toPost(record).coverImage).toBeUndefined();
+  });
+
+  test("parses contributors with did, role, and displayName", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        contributors: [
+          { did: "did:plc:contrib1", role: "editor", displayName: "Jane" },
+          { did: "did:plc:contrib2", displayName: "Bob" },
+          { did: "did:plc:contrib3" },
+        ],
+      },
+    };
+    expect(toPost(record).contributors).toEqual([
+      { did: "did:plc:contrib1", role: "editor", displayName: "Jane" },
+      { did: "did:plc:contrib2", displayName: "Bob" },
+      { did: "did:plc:contrib3" },
+    ]);
+  });
+
+  test("filters out contributors missing a did", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        contributors: [
+          { role: "editor" },
+          { did: "did:plc:contrib1", displayName: "Jane" },
+        ],
+      },
+    };
+    expect(toPost(record).contributors).toEqual([
+      { did: "did:plc:contrib1", displayName: "Jane" },
+    ]);
+  });
+
+  test("returns undefined for empty contributors array", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        contributors: [],
+      },
+    };
+    expect(toPost(record).contributors).toBeUndefined();
+  });
+
+  test("parses a valid bskyPostRef", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        bskyPostRef: {
+          uri: "at://did:plc:abc/app.bsky.feed.post/3xyz123",
+          cid: "bafyreiexample",
+        },
+      },
+    };
+    expect(toPost(record).bskyPostRef).toEqual({
+      uri: "at://did:plc:abc/app.bsky.feed.post/3xyz123",
+      cid: "bafyreiexample",
+    });
+  });
+
+  test("returns undefined for bskyPostRef missing required fields", () => {
+    const record: RepoRecord = {
+      uri: "at://did:plc:abc/site.standard.document/rk",
+      value: {
+        title: "T",
+        publishedAt: "2026-01-01T00:00:00Z",
+        bskyPostRef: { uri: "at://did:plc:abc/app.bsky.feed.post/3xyz" },
+      },
+    };
+    expect(toPost(record).bskyPostRef).toBeUndefined();
   });
 });
 
@@ -94,6 +208,7 @@ describe("isPublishable", () => {
     publishedAt: "2026-01-01T00:00:00Z",
     site: "at://did:plc:abc/site.standard.publication/pub1",
     markdown: "body",
+    uri: "at://did:plc:abc/site.standard.document/rk",
   };
 
   test("requires a title and publishedAt", () => {
@@ -119,6 +234,7 @@ describe("sortPosts + dedupeBySlug", () => {
     tags: [],
     publishedAt,
     markdown: "",
+    uri: `at://did:plc:abc/site.standard.document/${rkey}`,
   });
 
   test("sorts newest first", () => {
