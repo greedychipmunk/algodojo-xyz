@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getRecord, listRecords } from "./atproto";
+import { blobUrl, getRecord, listRecords, resolvePds } from "./atproto";
 import {
   dedupeBySlug,
   isPublishable,
@@ -25,13 +25,22 @@ const PUBLICATION_URI =
   process.env.BLOG_PUBLICATION_URI ??
   "at://did:plc:bvjokteh6hd2e3blqavus3qj/site.standard.publication/3mprecrhiyg25";
 
+/** Attach resolved cover-image URLs to posts that have a cover image blob. */
+function withCoverImageUrls(posts: Post[], pds: string): Post[] {
+  return posts.map((post) =>
+    post.coverImage
+      ? { ...post, coverImageUrl: blobUrl(pds, post.coverImage.cid) }
+      : post,
+  );
+}
+
 /** All publishable posts, newest first, de-duplicated by slug. */
 export async function listPosts(): Promise<Post[]> {
-  const records = await listRecords();
+  const [records, pds] = await Promise.all([listRecords(), resolvePds()]);
   const posts = records
     .map(toPost)
     .filter((post) => isPublishable(post, PUBLICATION_URI));
-  return dedupeBySlug(sortPosts(posts));
+  return withCoverImageUrls(dedupeBySlug(sortPosts(posts)), pds);
 }
 
 /**
@@ -47,6 +56,10 @@ export async function getPostBySlug(slug: string): Promise<Post | null> {
       isPublishable(post, PUBLICATION_URI) &&
       slugOf(direct.value, rkeyOf(direct.uri)) === slug
     ) {
+      if (post.coverImage) {
+        const pds = await resolvePds();
+        return { ...post, coverImageUrl: blobUrl(pds, post.coverImage.cid) };
+      }
       return post;
     }
   }

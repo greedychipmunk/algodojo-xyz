@@ -9,6 +9,26 @@
  * orchestration in `./blog`; markdown rendering in `./markdown`.
  */
 
+/** Parsed `coverImage` blob from the record. */
+export interface CoverImage {
+  cid: string;
+  mimeType: string;
+  size: number;
+}
+
+/** A contributor to a document (`site.standard.document#contributor`). */
+export interface Contributor {
+  did: string;
+  role?: string;
+  displayName?: string;
+}
+
+/** Strong reference to a Bluesky post (`app.bsky.feed.post`). */
+export interface BskyPostRef {
+  uri: string;
+  cid: string;
+}
+
 export interface Post {
   rkey: string;
   slug: string;
@@ -20,6 +40,13 @@ export interface Post {
   site?: string;
   /** The post body as raw markdown (the record's `textContent`). */
   markdown: string;
+  coverImage?: CoverImage;
+  /** Resolved URL for the cover image blob; set by the blog layer after PDS resolution. */
+  coverImageUrl?: string;
+  contributors?: Contributor[];
+  bskyPostRef?: BskyPostRef;
+  /** The full AT-URI of the record (`at://{DID}/site.standard.document/{rkey}`). */
+  uri: string;
 }
 
 export interface RepoRecord {
@@ -34,6 +61,21 @@ export interface RepoRecord {
     publishedAt?: string;
     updatedAt?: string;
     textContent?: string;
+    coverImage?: {
+      $type?: string;
+      ref?: { $link?: string };
+      mimeType?: string;
+      size?: number;
+    };
+    contributors?: Array<{
+      did?: string;
+      role?: string;
+      displayName?: string;
+    }>;
+    bskyPostRef?: {
+      uri?: string;
+      cid?: string;
+    };
   };
 }
 
@@ -47,6 +89,41 @@ export const rkeyOf = (uri: string): string => uri.split("/").pop() ?? uri;
  */
 export const slugOf = (value: RepoRecord["value"], rkey: string): string =>
   (value.path ?? "").replace(/^\//, "") || rkey;
+
+/** Parse a `coverImage` blob from the record, or `undefined` if invalid. */
+function parseCoverImage(
+  blob: RepoRecord["value"]["coverImage"],
+): CoverImage | undefined {
+  if (!blob?.ref?.$link || !blob.mimeType || typeof blob.size !== "number") {
+    return undefined;
+  }
+  return { cid: blob.ref.$link, mimeType: blob.mimeType, size: blob.size };
+}
+
+/** Parse the `contributors` array, filtering entries missing a `did`. */
+function parseContributors(
+  raw: RepoRecord["value"]["contributors"],
+): Contributor[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const parsed = raw
+    .filter((c): c is { did: string; role?: string; displayName?: string } =>
+      typeof c?.did === "string",
+    )
+    .map((c) => ({
+      did: c.did,
+      ...(c.role && { role: c.role }),
+      ...(c.displayName && { displayName: c.displayName }),
+    }));
+  return parsed.length > 0 ? parsed : undefined;
+}
+
+/** Parse a `bskyPostRef`, or `undefined` if missing required fields. */
+function parseBskyPostRef(
+  ref: RepoRecord["value"]["bskyPostRef"],
+): BskyPostRef | undefined {
+  if (!ref?.uri || !ref.cid) return undefined;
+  return { uri: ref.uri, cid: ref.cid };
+}
 
 /** Map a raw `com.atproto.repo` record into our `Post` domain model. */
 export function toPost(record: RepoRecord): Post {
@@ -62,6 +139,10 @@ export function toPost(record: RepoRecord): Post {
     updatedAt: value.updatedAt,
     site: value.site,
     markdown: value.textContent ?? "",
+    coverImage: parseCoverImage(value.coverImage),
+    contributors: parseContributors(value.contributors),
+    bskyPostRef: parseBskyPostRef(value.bskyPostRef),
+    uri: record.uri,
   };
 }
 
