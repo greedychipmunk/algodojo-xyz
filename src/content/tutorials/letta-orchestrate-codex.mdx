@@ -25,21 +25,21 @@ A stateless agent is like a brilliant contractor who shows up each morning with 
 The best pattern combines both: **a Letta agent as the orchestrator** and **Codex CLI agents as stateless workers**. The Letta agent holds the memory, decides what to dispatch, crafts the context-rich prompt, and interprets the results. Codex executes with a clean slate and frontier reasoning.
 
 ```mermaid
-flowchart TD
-    User["You"] -->|message| Agent["Letta Agent<br/>(stateful, persistent memory)"]
-    Agent -->|"codex exec prompt"| Codex["Codex CLI<br/>(stateless, isolated context)"]
-    Codex -->|"final message"| Agent
-    Agent -->|"summary + insights"| User
+flowchart LR
+    User["You"] -->|message| Agent["Letta Agent<br/>(stateful memory)"]
+    Agent -->|"codex exec"| Codex["Codex CLI<br/>(stateless)"]
+    Codex -->|result| Agent
+    Agent -->|summary| User
 
-    subgraph Memory ["Letta Agent Memory Blocks"]
-        Persona["persona<br/>(orchestrator identity)"]
+    subgraph Memory ["Agent Memory Blocks"]
+        Persona["persona<br/>(identity)"]
         Codebase["codebase_context<br/>(project knowledge)"]
-        History["dispatch_history<br/>(past Codex results)"]
+        History["dispatch_history<br/>(past results)"]
     end
 
-    Agent -.->|"reads"| Persona
-    Agent -.->|"reads"| Codebase
-    Agent -.->|"writes"| History
+    Agent -.->|reads| Persona
+    Agent -.->|reads| Codebase
+    Agent -.->|writes| History
 ```
 
 This is the architecture Sarah Wooders described in [Letta's blog post on orchestrating coding agents](https://www.letta.com/blog/orchestrating-coding-agents/): the stateful agent manages context and dispatches tasks to isolated, stateless subagents. In this tutorial you'll build that pattern yourself using the [Letta Agent SDK](https://docs.letta.com/agent-sdk) and the [Codex CLI](https://developers.openai.com/codex).
