@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 
 const DIR = path.join(process.cwd(), "src/content/tutorials");
 
-// The eighteen Letta tutorials in intended learning-path order (ascending publishedAt).
+// The nineteen Letta tutorials in intended learning-path order (ascending publishedAt).
 const EXPECTED = [
   { slug: "letta-build-your-first-agent", difficulty: "beginner", publishedAt: "2026-06-15" },
   { slug: "letta-memory-blocks", difficulty: "intermediate", publishedAt: "2026-06-16" },
@@ -26,6 +26,7 @@ const EXPECTED = [
   { slug: "letta-skill-learning", difficulty: "intermediate", publishedAt: "2026-07-22" },
   { slug: "letta-mods", difficulty: "intermediate", publishedAt: "2026-07-22" },
   { slug: "letta-companion-bot", difficulty: "intermediate", publishedAt: "2026-08-17" },
+  { slug: "letta-orchestrate-codex", difficulty: "advanced", publishedAt: "2026-08-21" },
 ];
 
 const REQUIRED_FIELDS = [
@@ -38,7 +39,7 @@ function read(slug: string) {
 }
 
 describe("Letta tutorials", () => {
-  test("has exactly the eighteen expected files", () => {
+  test("has exactly the nineteen expected files", () => {
     const lettaFiles = fs
       .readdirSync(DIR)
       .filter((f) => f.startsWith("letta-") && f.endsWith(".mdx"))
