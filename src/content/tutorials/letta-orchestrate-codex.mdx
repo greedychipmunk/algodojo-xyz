@@ -37,9 +37,7 @@ flowchart LR
         History["dispatch_history<br/>(past results)"]
     end
 
-    Agent -.->|reads| Persona
-    Agent -.->|reads| Codebase
-    Agent -.->|writes| History
+    Agent -.->|"reads / writes"| Memory
 ```
 
 This is the architecture Sarah Wooders described in [Letta's blog post on orchestrating coding agents](https://www.letta.com/blog/orchestrating-coding-agents/): the stateful agent manages context and dispatches tasks to isolated, stateless subagents. In this tutorial you'll build that pattern yourself using the [Letta Agent SDK](https://docs.letta.com/agent-sdk) and the [Codex CLI](https://developers.openai.com/codex).
@@ -401,6 +399,7 @@ The flow looks like this:
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant U as You
     participant L as Letta Agent
     participant C as Codex CLI
@@ -412,7 +411,7 @@ sequenceDiagram
     U->>L: "Yes, fix it"
     L->>C: codex exec resume session-id "Fix the race you found"
     C-->>L: "Fixed by adding a mutex to login handler"
-    L->>U: "Done — mutex added to the login handler"
+    L->>U: "Done - mutex added to the login handler"
 ```
 
 The Letta agent handles this automatically. When Codex returns a result that includes a session ID, the agent stores it. If you ask a follow-up, the agent decides whether to resume that Codex session (preserving its context) or start a fresh one.
