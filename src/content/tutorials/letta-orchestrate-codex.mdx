@@ -26,20 +26,20 @@ The best pattern combines both: **a Letta agent as the orchestrator** and **Code
 
 ```mermaid
 flowchart TD
-    User["You"] -->|message| Letta["Letta Agent<br/>(stateful, persistent memory)"]
-    Letta -->|"codex exec prompt"| Codex["Codex CLI<br/>(stateless, isolated context)"]
-    Codex -->|"final message"| Letta
-    Letta -->|"summary + insights"| User
+    User["You"] -->|message| Agent["Letta Agent<br/>(stateful, persistent memory)"]
+    Agent -->|"codex exec prompt"| Codex["Codex CLI<br/>(stateless, isolated context)"]
+    Codex -->|"final message"| Agent
+    Agent -->|"summary + insights"| User
 
-    subgraph Letta ["Letta Agent Memory"]
+    subgraph Memory ["Letta Agent Memory Blocks"]
         Persona["persona<br/>(orchestrator identity)"]
         Codebase["codebase_context<br/>(project knowledge)"]
         History["dispatch_history<br/>(past Codex results)"]
     end
 
-    Letta -.->|"reads"| Persona
-    Letta -.->|"reads"| Codebase
-    Letta -.->|"writes"| History
+    Agent -.->|"reads"| Persona
+    Agent -.->|"reads"| Codebase
+    Agent -.->|"writes"| History
 ```
 
 This is the architecture Sarah Wooders described in [Letta's blog post on orchestrating coding agents](https://www.letta.com/blog/orchestrating-coding-agents/): the stateful agent manages context and dispatches tasks to isolated, stateless subagents. In this tutorial you'll build that pattern yourself using the [Letta Agent SDK](https://docs.letta.com/agent-sdk) and the [Codex CLI](https://developers.openai.com/codex).
@@ -296,7 +296,7 @@ Now wire everything together. The orchestrator resumes the agent, registers the 
 
 ```typescript
 // src/orchestrate.ts
-import { LettaAgentClient, type SDKMessage } from "@letta-ai/letta-agent-sdk";
+import { LettaAgentClient } from "@letta-ai/letta-agent-sdk";
 import { config } from "dotenv";
 import * as readline from "readline";
 import { dispatchCodexTool } from "./codex-tool.js";
@@ -322,6 +322,14 @@ async function main() {
 
   console.log("Codex Orchestrator ready. Type a message (Ctrl+C to exit).\n");
 
+  // ANSI color codes for terminal output:
+  // \x1b[90m = gray (reasoning), \x1b[33m = yellow (dispatch),
+  // \x1b[32m = green (results), \x1b[0m = reset
+  const GRAY = "\x1b[90m";
+  const YELLOW = "\x1b[33m";
+  const GREEN = "\x1b[32m";
+  const RESET = "\x1b[0m";
+
   const ask = () => rl.question("you > ", async (input) => {
     if (!input.trim()) return ask();
 
@@ -337,18 +345,18 @@ async function main() {
     for await (const message of session.stream()) {
       switch (message.type) {
         case "reasoning":
-          process.stdout.write("\x1b[90m" + message.content + "\x1b[0m");
+          process.stdout.write(GRAY + message.content + RESET);
           break;
         case "tool_call":
           if (!announcedTools.has(message.toolCallId)) {
             announcedTools.add(message.toolCallId);
-            console.log("\n\x1b[33m[dispatching to " + message.toolName + "]\x1b[0m");
+            console.log("\n" + YELLOW + "[dispatching to " + message.toolName + "]" + RESET);
           }
           break;
         case "tool_result":
-          console.log(
-            "\x1b[32m[result: " + message.content.slice(0, 200) + (message.content.length > 200 ? "..." : "") + "]\x1b[0m"
-          );
+          const preview = message.content.slice(0, 200);
+          const ellipsis = message.content.length > 200 ? "..." : "";
+          console.log(GREEN + "[result: " + preview + ellipsis + "]" + RESET);
           break;
         case "assistant":
           process.stdout.write(message.content);
@@ -398,13 +406,13 @@ sequenceDiagram
     participant C as Codex CLI
 
     U->>L: "Debug the login race condition"
-    L->>C: codex exec "Investigate race condition in src/auth/login.ts..."
-    C-->>L: "Found a race in line 47. How should I fix it?"
-    L->>U: "Codex found a race condition. Want me to have it fix it?"
+    L->>C: codex exec "Investigate race in src/auth/login.ts..."
+    C-->>L: "Found race at line 47. How should I fix it?"
+    L->>U: "Codex found a race condition. Fix it?"
     U->>L: "Yes, fix it"
-    L->>C: codex exec resume <session-id> "Fix the race condition you found"
-    C-->>L: "Fixed by adding a mutex..."
-    L->>U: "Codex fixed it by adding a mutex to the login handler"
+    L->>C: codex exec resume session-id "Fix the race you found"
+    C-->>L: "Fixed by adding a mutex to login handler"
+    L->>U: "Done — mutex added to the login handler"
 ```
 
 The Letta agent handles this automatically. When Codex returns a result that includes a session ID, the agent stores it. If you ask a follow-up, the agent decides whether to resume that Codex session (preserving its context) or start a fresh one.
@@ -588,17 +596,18 @@ The Letta agent decides when to dispatch based on its persona instructions. Here
 
 ```mermaid
 flowchart TD
-    Msg["User message"] --> Check{"Already in<br/>memory?"}
-    Check -->|"yes"| Direct["Answer directly<br/>(no dispatch)"]
-    Check -->|"no"| Scope{"Complex<br/>investigation?"}
-    Scope -->|"no, quick lookup"| Dispatch1["Single Codex dispatch<br/>read-only sandbox"]
-    Scope -->|"yes, multi-file"| Parallel{"Multiple<br/>independent<br/>areas?"}
-    Parallel -->|"yes"| Dispatch2["Parallel Codex dispatch<br/>multiple agents"]
-    Parallel -->|"no"| Dispatch3["Single Codex dispatch<br/>workspace-write if editing"]
-    Dispatch1 --> Synthesize["Letta synthesizes<br/>and stores learnings"]
+    Msg["User message"] --> Check{"In memory?"}
+    Check -->|"yes"| Direct["Answer directly"]
+    Check -->|"no"| Scope{"Complex task?"}
+    Scope -->|"quick lookup"| Dispatch1["Single dispatch<br/>read-only"]
+    Scope -->|"multi-file"| Parallel{"Independent areas?"}
+    Parallel -->|"yes"| Dispatch2["Parallel dispatch<br/>multiple agents"]
+    Parallel -->|"no"| Dispatch3["Single dispatch<br/>workspace-write"]
+    Dispatch1 --> Synthesize["Synthesize results<br/>store learnings"]
     Dispatch2 --> Synthesize
     Dispatch3 --> Synthesize
-    Synthesize --> Respond["Respond to user"]
+    Direct --> Respond["Respond to user"]
+    Synthesize --> Respond
 ```
 
 ## Codex CLI Reference
