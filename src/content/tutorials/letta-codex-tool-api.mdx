@@ -45,7 +45,7 @@ The server runs on `http://localhost:8283` by default.
 
 Create a file named `codex_tool.py`:
 
-```python3
+```python
 # codex_tool.py
 import subprocess
 import json
@@ -100,7 +100,7 @@ This function becomes a Letta tool automatically. The docstring follows Google s
 
 Create a file named `register_tool.py`:
 
-```python3
+```python
 # register_tool.py
 from letta_client import Letta
 import os
@@ -142,7 +142,7 @@ The tool now lives on your Letta server. Any agent you attach it to can call it.
 
 Now create an agent that uses the tool. The agent's persona tells it when to dispatch to Codex and when to answer directly:
 
-```python3
+```python
 # create_agent.py
 from letta_client import Letta
 import os
@@ -218,7 +218,7 @@ Save the agent ID — you'll need it for sending messages.
 
 Now talk to your agent. When it decides to dispatch to Codex, the Letta server executes the tool server-side and returns the result:
 
-```python3
+```python
 # chat.py
 from letta_client import Letta
 import os
@@ -268,7 +268,7 @@ The tool captures the Codex session ID in its return value. When the agent needs
 
 To add explicit session resumption support, update the tool to accept an optional session ID:
 
-```python3
+```python
 # codex_tool.py (updated)
 import subprocess
 import json
