@@ -5,10 +5,18 @@ import Link from "next/link";
 import { NAV_ITEMS } from "@/lib/constants";
 import { Navigation } from "@/components/layout/navigation";
 import { Logo } from "@/components/ui/logo";
+import { authClient } from "@/lib/auth-client";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    authClient.getSession().then(({ data }) => {
+      setIsAuthenticated(Boolean(data?.user));
+    });
+  }, []);
 
   useEffect(() => {
     function onScroll() {
@@ -51,12 +59,21 @@ export function Header() {
           {/* Desktop nav */}
           <div className="hidden md:flex md:items-center md:gap-6">
             <Navigation items={NAV_ITEMS} />
-            <Link
-              href="/contact"
-              className="inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
-            >
-              Get Started
-            </Link>
+            {isAuthenticated ? (
+              <Link
+                href="/account"
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-bg-secondary px-4 py-2 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+              >
+                Account
+              </Link>
+            ) : (
+              <Link
+                href="/sign-in"
+                className="inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+              >
+                Sign In
+              </Link>
+            )}
           </div>
 
           {/* Mobile hamburger */}
@@ -110,11 +127,11 @@ export function Header() {
                 </Link>
               ))}
               <Link
-                href="/contact"
+                href={isAuthenticated ? "/account" : "/sign-in"}
                 onClick={() => setMobileOpen(false)}
                 className="mt-2 inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover"
               >
-                Get Started
+                {isAuthenticated ? "Account" : "Sign In"}
               </Link>
             </div>
           </nav>

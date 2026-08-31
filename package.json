@@ -12,11 +12,17 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
+    "@libsql/kysely-libsql": "^0.4.1",
     "@mdx-js/loader": "^3",
     "@mdx-js/react": "^3",
     "@next/mdx": "16.2.6",
+    "@polar-sh/better-auth": "^1.8.4",
+    "@polar-sh/sdk": "^0.47.1",
     "@shikijs/rehype": "^4.2.0",
+    "better-auth": "^1.7.2",
     "gray-matter": "^4",
+    "kysely": "^0.29.5",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
