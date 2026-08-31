@@ -24,7 +24,7 @@ export const AUTHOR = {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Services", href: "/services" },
   { label: "Tutorials", href: "/tutorials" },
-  { label: "Frameworks", href: "/tutorials/frameworks" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Blog", href: "/blog" },
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },

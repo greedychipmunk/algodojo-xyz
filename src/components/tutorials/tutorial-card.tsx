@@ -38,6 +38,11 @@ export function TutorialCard({ tutorial }: TutorialCardProps) {
           <span className="rounded-full border border-border bg-bg-secondary px-3 py-1 text-text-secondary">
             {difficultyLabel}
           </span>
+          {tutorial.tier === "premium" && (
+            <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 font-semibold text-accent">
+              Premium
+            </span>
+          )}
         </div>
 
         <div className="flex flex-1 flex-col gap-4">

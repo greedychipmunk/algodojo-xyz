@@ -7,9 +7,11 @@ import {
   AuthorBio,
 } from "@/components/tutorials/author-byline";
 import { MermaidRenderer } from "@/components/tutorials/mermaid-renderer";
+import { Paywall } from "@/components/tutorials/paywall";
 import { AUTHOR, SITE_METADATA } from "@/lib/constants";
 import { getAllTutorials, getTutorialBySlug } from "@/lib/content";
 import { renderMarkdown } from "@/lib/markdown";
+import { getSubscriptionStatus } from "@/lib/subscription";
 import {
   generatePageMetadata,
   breadcrumbJsonLd,
@@ -61,6 +63,12 @@ export default async function TutorialDetailPage({
         ? "warning"
         : "error";
 
+  // Check subscription status for premium content gating
+  const isPremium = tutorial.tier === "premium";
+  const { isAuthenticated, hasActiveSubscription } =
+    isPremium ? await getSubscriptionStatus() : { isAuthenticated: false, hasActiveSubscription: true };
+  const canAccessContent = !isPremium || hasActiveSubscription;
+
   return (
     <>
       <script
@@ -92,6 +100,9 @@ export default async function TutorialDetailPage({
               <div className="flex flex-wrap gap-2">
                 <Badge variant={difficultyVariant}>{tutorial.difficulty}</Badge>
                 <Badge>{tutorial.category}</Badge>
+                {isPremium && (
+                  <Badge variant="accent">Premium</Badge>
+                )}
               </div>
               <h1 className="mt-4 text-3xl font-bold sm:text-4xl lg:text-5xl">
                 {tutorial.title}
@@ -104,18 +115,30 @@ export default async function TutorialDetailPage({
                 estimatedReadTime={tutorial.estimatedReadTime}
               />
 
-              <div className="prose mt-12 max-w-none">
-                <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
-              </div>
+              {canAccessContent ? (
+                <>
+                  <div className="prose mt-12 max-w-none">
+                    <div dangerouslySetInnerHTML={{ __html: contentHtml }} />
+                  </div>
 
-              <MermaidRenderer />
+                  <MermaidRenderer />
+                </>
+              ) : (
+                <Paywall
+                  tutorialTitle={tutorial.title}
+                  tutorialSlug={tutorial.slug}
+                  isAuthenticated={isAuthenticated}
+                />
+              )}
 
               <AuthorBio />
             </div>
 
-            <aside className="hidden lg:block min-w-0">
-              <TableOfContents headings={extractHeadings(contentHtml)} />
-            </aside>
+            {canAccessContent && (
+              <aside className="hidden lg:block min-w-0">
+                <TableOfContents headings={extractHeadings(contentHtml)} />
+              </aside>
+            )}
           </div>
         </Container>
       </article>
