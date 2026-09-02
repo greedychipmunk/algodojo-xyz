@@ -1,6 +1,6 @@
 import { createAuthClient } from "better-auth/client";
-import { polarClient } from "@polar-sh/better-auth/client";
+import { stripeClient } from "@better-auth/stripe/client";
 
 export const authClient = createAuthClient({
-  plugins: [polarClient()],
+  plugins: [stripeClient({ subscription: true })],
 });

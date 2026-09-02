@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
-const POLAR_PRODUCT_SLUG = process.env.NEXT_PUBLIC_POLAR_PRODUCT_SLUG || "";
-
 export function PricingCards() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,17 +12,14 @@ export function PricingCards() {
     setLoading(true);
 
     try {
-      const { data, error: checkoutError } = await authClient.checkout({
-        slug: POLAR_PRODUCT_SLUG,
+      const { error: checkoutError } = await authClient.subscription.upgrade({
+        plan: "premium",
+        successUrl: "/account",
+        cancelUrl: "/pricing",
       });
 
       if (checkoutError) {
         setError(checkoutError.message ?? "Checkout failed. Please try again.");
-        return;
-      }
-
-      if (data?.url) {
-        window.location.href = data.url;
       }
     } catch {
       setError("Something went wrong. Please try again.");
@@ -84,7 +79,7 @@ export function PricingCards() {
             disabled={loading}
             className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Redirecting…" : "Subscribe with Polar"}
+            {loading ? "Redirecting…" : "Subscribe"}
           </button>
         </div>
       </div>

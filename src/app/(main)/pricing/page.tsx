@@ -29,7 +29,7 @@ export default function PricingPage() {
 
         <div className="mx-auto mt-12 max-w-2xl text-center">
           <p className="text-sm text-text-secondary">
-            All payments are securely processed by Polar, our Merchant of Record.
+            All payments are securely processed by Stripe.
             You can cancel anytime from your account portal.
           </p>
         </div>
