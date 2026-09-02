@@ -2,7 +2,7 @@
 
 Company website for **Algo Dojo, LLC** — an AI/ML consulting firm specializing in agentic AI, machine learning, and business process automation.
 
-Built with Next.js 16 (App Router), TypeScript, and Tailwind CSS v4. Features a dark-mode-first design, MDX-powered tutorials and blog, full SEO optimization, and premium tutorials gated behind Better Auth + Polar subscriptions.
+Built with Next.js 16 (App Router), TypeScript, and Tailwind CSS v4. Features a dark-mode-first design, MDX-powered tutorials and blog, full SEO optimization, and premium tutorials gated behind Better Auth + Stripe subscriptions.
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@ Built with Next.js 16 (App Router), TypeScript, and Tailwind CSS v4. Features a 
 - **Styling:** Tailwind CSS v4 with custom design system
 - **Content:** MDX via `next-mdx-remote` + `gray-matter`
 - **Auth:** Better Auth (email/password, self-hosted)
-- **Payments:** Polar (Merchant of Record) via `@polar-sh/better-auth`
+- **Payments:** Stripe via `@better-auth/stripe`
 - **Database:** Turso (libSQL/SQLite) via Kysely
 - **Fonts:** Geist Sans & Geist Mono (self-hosted via `geist` package)
 - **Linting:** ESLint 9 + Prettier
@@ -75,7 +75,7 @@ src/
 │   ├── blog/                     # MDX blog posts
 │   └── tutorials/                # MDX tutorial files
 ├── lib/
-│   ├── auth.ts                   # Better Auth server config (Turso + Polar)
+│   ├── auth.ts                   # Better Auth server config (Turso + Stripe)
 │   ├── auth-client.ts            # Better Auth client SDK
 │   ├── blog.ts                   # Blog content loading utilities
 │   ├── content.ts                # Content loading + frontmatter parsing
@@ -101,7 +101,7 @@ public/
 | `/tutorials/[slug]` | Tutorial detail with MDX rendering, TOC, breadcrumbs (paywall for premium) |
 | `/blog` | Blog listing with post cards |
 | `/blog/[slug]` | Blog post detail with MDX rendering |
-| `/pricing` | Free and premium tier cards with Polar checkout |
+| `/pricing` | Free and premium tier cards with Stripe checkout |
 | `/sign-in` | Sign-in page (email/password) |
 | `/sign-up` | Sign-up page (email/password) |
 | `/account` | Account page — subscription status, billing portal link (auth required) |
@@ -143,15 +143,13 @@ cp .env.example .env.local
 | `TURSO_AUTH_TOKEN` | Turso database auth token |
 | `BETTER_AUTH_SECRET` | Better Auth secret (32+ chars — generate with `openssl rand -base64 32`) |
 | `BETTER_AUTH_URL` | Site URL (`http://localhost:3000` for dev, production URL for deploy) |
-| `POLAR_ACCESS_TOKEN` | Polar API access token (from Polar dashboard) |
-| `POLAR_WEBHOOK_SECRET` | Polar webhook secret (from Polar webhook settings) |
-| `POLAR_SUCCESS_URL` | URL to redirect after successful checkout (`http://localhost:3000/account`) |
-| `POLAR_RETURN_URL` | URL to redirect back from checkout (`http://localhost:3000/pricing`) |
-| `NEXT_PUBLIC_POLAR_PRODUCT_SLUG` | Polar product slug for the premium subscription |
+| `STRIPE_SECRET_KEY` | Stripe API secret key (from Stripe dashboard) |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (from Stripe webhook settings) |
+| `STRIPE_PREMIUM_PRICE_ID` | Stripe price ID for the premium subscription plan |
 
 ## Authentication & Payments Setup
 
-The site uses [Better Auth](https://better-auth.com) for self-hosted email/password authentication and [Polar](https://polar.sh) as the Merchant of Record for premium subscriptions.
+The site uses [Better Auth](https://better-auth.com) for self-hosted email/password authentication and [Stripe](https://stripe.com) for premium subscription billing.
 
 ### 1. Create a Turso Database
 
@@ -187,28 +185,34 @@ Create the Better Auth tables (user, session, account, verification) in your Tur
 npx @better-auth/cli migrate
 ```
 
-### 4. Create a Polar Product
+### 4. Create a Stripe Product
 
-1. Sign up at [Polar](https://polar.sh)
-2. Create a subscription product (e.g., "Algo Dojo Premium" at $9/month)
-3. Copy the product slug and set `NEXT_PUBLIC_POLAR_PRODUCT_SLUG` in `.env.local`
-4. Generate an access token and set `POLAR_ACCESS_TOKEN`
-5. Create a webhook endpoint pointing to `https://your-domain.com/api/auth/polar/webhooks`
-6. Copy the webhook secret and set `POLAR_WEBHOOK_SECRET`
+1. Sign up at [Stripe](https://stripe.com)
+2. Create a subscription product with a recurring price (e.g., "Algo Dojo Premium" at $9/month)
+3. Copy the price ID and set `STRIPE_PREMIUM_PRICE_ID` in `.env.local`
+4. Copy your secret key and set `STRIPE_SECRET_KEY`
+5. Create a webhook endpoint pointing to `https://your-domain.com/api/auth/stripe/webhook`
+6. Copy the webhook signing secret and set `STRIPE_WEBHOOK_SECRET`
 
-### 5. Configure Production URLs
+### 5. Run Stripe Database Migrations
+
+After configuring Stripe, run the Better Auth migration to create the subscription tables:
+
+```bash
+npx @better-auth/cli migrate
+```
+
+### 6. Configure Production URLs
 
 For production, set these in your hosting provider's environment variables:
 
 - `BETTER_AUTH_URL` → your production URL (e.g., `https://algodojo.xyz`)
-- `POLAR_SUCCESS_URL` → `https://algodojo.xyz/account`
-- `POLAR_RETURN_URL` → `https://algodojo.xyz/pricing`
 
 ### How Content Gating Works
 
 - Tutorials with `tier: "free"` are accessible to everyone
 - Tutorials with `tier: "premium"` show a paywall for non-subscribers
-- Authenticated users with an active Polar subscription see full content
+- Authenticated users with an active Stripe subscription see full content
 - The Next.js proxy (`src/proxy.ts`) performs optimistic cookie checks for `/account`
 - Real auth/subscription checks happen server-side in the page component via `getSubscriptionStatus()`
 

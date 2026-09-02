@@ -17,8 +17,7 @@
     "@mdx-js/loader": "^3",
     "@mdx-js/react": "^3",
     "@next/mdx": "16.2.6",
-    "@polar-sh/better-auth": "^1.8.4",
-    "@polar-sh/sdk": "^0.47.1",
+    "@better-auth/stripe": "^1.2.0",
     "@shikijs/rehype": "^4.2.0",
     "better-auth": "^1.7.2",
     "gray-matter": "^4",
@@ -33,6 +32,7 @@
     "remark-rehype": "^11.1.2",
     "server-only": "^0.0.1",
     "shiki": "^4.2.0",
+    "stripe": "^18.0.0",
     "unified": "^11.0.5"
   },
   "devDependencies": {

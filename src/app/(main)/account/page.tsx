@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { AccountView } from "@/components/account/account-view";
 import { auth } from "@/lib/auth";
-import { polarClient } from "@/lib/auth";
 import { headers } from "next/headers";
 import { generatePageMetadata } from "@/lib/metadata";
 
@@ -25,19 +24,22 @@ export default async function AccountPage() {
   let hasSubscription = false;
 
   try {
-    const state = await polarClient.customers.getStateExternal({
-      externalId: session.user.id,
+    const subscriptions = await auth.api.listActiveSubscriptions({
+      headers: await headers(),
     });
 
-    hasSubscription =
-      state.activeSubscriptions && state.activeSubscriptions.length > 0;
+    const active = subscriptions.filter(
+      (sub) => sub.status === "active" || sub.status === "trialing",
+    );
 
-    activeSubscriptions = (state.activeSubscriptions || []).map((sub) => ({
-      name: "Premium",
+    hasSubscription = active.length > 0;
+
+    activeSubscriptions = active.map((sub) => ({
+      name: sub.plan || "Premium",
       status: sub.status,
     }));
   } catch {
-    // Polar not configured or customer doesn't exist yet
+    // Stripe not configured or subscription table doesn't exist yet
   }
 
   return (

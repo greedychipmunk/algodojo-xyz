@@ -25,7 +25,9 @@ export function AccountView({
     setLoading(true);
 
     try {
-      const { data, error: portalError } = await authClient.customer.portal();
+      const { data, error: portalError } = await authClient.subscription.billingPortal({
+        returnUrl: "/account",
+      });
 
       if (portalError) {
         setError(portalError.message ?? "Failed to open billing portal.");

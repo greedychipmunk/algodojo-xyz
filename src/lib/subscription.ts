@@ -1,14 +1,13 @@
 import "server-only";
 
-import { auth, polarClient } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
 /**
- * Check if the current user has an active Polar subscription
- * or has purchased specific content.
+ * Check if the current user has an active Stripe subscription.
  *
- * Uses the Polar SDK directly to query customer state via the
- * external ID (which is the Better Auth user ID).
+ * Uses the Better Auth API to query subscription status from the
+ * local database (the Stripe plugin persists subscription data).
  */
 export async function getSubscriptionStatus() {
   const session = await auth.api.getSession({
@@ -20,20 +19,21 @@ export async function getSubscriptionStatus() {
   }
 
   try {
-    const state = await polarClient.customers.getStateExternal({
-      externalId: session.user.id,
+    const subscriptions = await auth.api.listActiveSubscriptions({
+      headers: await headers(),
     });
 
-    const hasActiveSubscription =
-      state.activeSubscriptions && state.activeSubscriptions.length > 0;
+    const hasActiveSubscription = subscriptions.some(
+      (sub) => sub.status === "active" || sub.status === "trialing",
+    );
 
     return {
       isAuthenticated: true,
-      hasActiveSubscription: Boolean(hasActiveSubscription),
+      hasActiveSubscription,
       user: session.user,
     };
   } catch {
-    // If Polar isn't configured or the customer doesn't exist yet,
+    // If Stripe isn't configured or the subscription table doesn't exist yet,
     // treat as no active subscription.
     return {
       isAuthenticated: true,
