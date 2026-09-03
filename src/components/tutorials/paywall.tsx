@@ -2,11 +2,13 @@ import Link from "next/link";
 
 interface PaywallProps {
   tutorialTitle: string;
+  tutorialSlug: string;
   isAuthenticated: boolean;
 }
 
 export function Paywall({
   tutorialTitle,
+  tutorialSlug,
   isAuthenticated,
 }: PaywallProps) {
   return (
@@ -37,7 +39,7 @@ export function Paywall({
       </p>
       <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
         <Link
-          href="/pricing"
+          href={`/pricing?tutorial=${tutorialSlug}`}
           className="inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
         >
           View Pricing
