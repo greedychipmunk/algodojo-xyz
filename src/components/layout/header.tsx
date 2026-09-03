@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { NAV_ITEMS } from "@/lib/constants";
 import { Navigation } from "@/components/layout/navigation";
@@ -11,6 +11,8 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
@@ -28,10 +30,23 @@ export function Header() {
 
   useEffect(() => {
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") setMobileOpen(false);
+      if (e.key === "Escape") {
+        setMobileOpen(false);
+        setMenuOpen(false);
+      }
     }
     document.addEventListener("keydown", onKeydown);
     return () => document.removeEventListener("keydown", onKeydown);
+  }, []);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
   return (
@@ -60,12 +75,52 @@ export function Header() {
           <div className="hidden md:flex md:items-center md:gap-6">
             <Navigation items={NAV_ITEMS} />
             {isAuthenticated ? (
-              <Link
-                href="/account"
-                className="inline-flex items-center justify-center rounded-lg border border-border bg-bg-secondary px-4 py-2 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
-              >
-                Account
-              </Link>
+              <div className="relative" ref={menuRef}>
+                <button
+                  type="button"
+                  aria-label="Account menu"
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center justify-center rounded-lg border border-border bg-bg-secondary px-4 py-2 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+                >
+                  Account
+                  <svg
+                    className={`ml-1.5 h-4 w-4 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                    />
+                  </svg>
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 mt-2 w-44 rounded-lg border border-border bg-bg-secondary shadow-card">
+                    <Link
+                      href="/account"
+                      onClick={() => setMenuOpen(false)}
+                      className="block rounded-t-lg px-4 py-2.5 text-sm font-medium text-text-primary transition-colors hover:bg-bg-tertiary"
+                    >
+                      Profile
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await authClient.signOut();
+                        window.location.href = "/";
+                      }}
+                      className="block w-full rounded-b-lg px-4 py-2.5 text-left text-sm font-medium text-text-primary transition-colors hover:bg-bg-tertiary"
+                    >
+                      Log Out
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <Link
                 href="/sign-in"
@@ -126,13 +181,35 @@ export function Header() {
                   {item.label}
                 </Link>
               ))}
-              <Link
-                href={isAuthenticated ? "/account" : "/sign-in"}
-                onClick={() => setMobileOpen(false)}
-                className="mt-2 inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover"
-              >
-                {isAuthenticated ? "Account" : "Sign In"}
-              </Link>
+              {isAuthenticated ? (
+                <div className="mt-2 flex flex-col gap-2">
+                  <Link
+                    href="/account"
+                    onClick={() => setMobileOpen(false)}
+                    className="inline-flex items-center justify-center rounded-lg border border-border bg-bg-secondary px-4 py-2.5 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover"
+                  >
+                    Profile
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await authClient.signOut();
+                      window.location.href = "/";
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover"
+                  >
+                    Log Out
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  href="/sign-in"
+                  onClick={() => setMobileOpen(false)}
+                  className="mt-2 inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover"
+                >
+                  Sign In
+                </Link>
+              )}
             </div>
           </nav>
         )}
