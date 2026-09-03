@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
@@ -44,12 +45,12 @@ export function PricingCards() {
           <li>Community support</li>
         </ul>
         <div className="mt-auto pt-8">
-          <a
+          <Link
             href="/tutorials"
             className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-bg-secondary px-5 py-2.5 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover"
           >
             Browse Free Tutorials
-          </a>
+          </Link>
         </div>
       </div>
 

@@ -2,13 +2,11 @@ import Link from "next/link";
 
 interface PaywallProps {
   tutorialTitle: string;
-  tutorialSlug: string;
   isAuthenticated: boolean;
 }
 
 export function Paywall({
   tutorialTitle,
-  tutorialSlug: _tutorialSlug,
   isAuthenticated,
 }: PaywallProps) {
   return (
