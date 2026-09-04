@@ -13,9 +13,7 @@ const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 // This prevents build-time crashes when env vars aren't set
 // (e.g. Vercel preview deploys missing environment configuration).
 const stripeClient = stripeSecretKey
-  ? new Stripe(stripeSecretKey, {
-      apiVersion: "2025-12-18.acacia" as Stripe.LatestApiVersion,
-    })
+  ? new Stripe(stripeSecretKey)
   : undefined;
 
 export const auth = betterAuth({
