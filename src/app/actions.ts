@@ -8,7 +8,7 @@ import {
 } from "@/lib/forms";
 import type { NewsletterFormState } from "@/lib/form-state";
 import { sendTelegramMessage } from "@/lib/telegram";
-import { stripe, PREMIUM_PRICE_ID, PREMIUM_ANNUAL_PRICE_ID } from "@/lib/stripe";
+import { stripe, PREMIUM_PRICE_ID, PREMIUM_ANNUAL_PRICE_ID, PREMIUM_LIFETIME_PRICE_ID } from "@/lib/stripe";
 
 export async function subscribeNewsletter(
   _prevState: NewsletterFormState,
@@ -47,13 +47,18 @@ export async function subscribeNewsletter(
 export async function createCheckoutSession(opts: {
   plan: string;
   annual: boolean;
+  lifetime?: boolean;
   tutorialSlug?: string;
 }): Promise<{ url: string } | { error: string }> {
   if (!stripe) {
     return { error: "Payments are not configured." };
   }
 
-  const priceId = opts.annual ? PREMIUM_ANNUAL_PRICE_ID : PREMIUM_PRICE_ID;
+  const priceId = opts.lifetime
+    ? PREMIUM_LIFETIME_PRICE_ID
+    : opts.annual
+      ? PREMIUM_ANNUAL_PRICE_ID
+      : PREMIUM_PRICE_ID;
   if (!priceId) {
     return { error: "Pricing is not configured." };
   }
@@ -62,22 +67,29 @@ export async function createCheckoutSession(opts: {
   const origin = h.get("origin") || process.env.BETTER_AUTH_URL || "http://localhost:3000";
 
   try {
+    const isLifetime = opts.lifetime === true;
+
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: isLifetime ? "payment" : "subscription",
       line_items: [{ price: priceId }],
       success_url: `${origin}/welcome?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/pricing`,
       metadata: {
         guest_checkout: "true",
         plan: opts.plan,
+        lifetime: isLifetime ? "true" : "",
         tutorial_slug: opts.tutorialSlug || "",
       },
-      subscription_data: {
-        metadata: {
-          guest_checkout: "true",
-          plan: opts.plan,
-        },
-      },
+      ...(isLifetime
+        ? {}
+        : {
+            subscription_data: {
+              metadata: {
+                guest_checkout: "true",
+                plan: opts.plan,
+              },
+            },
+          }),
       customer_email: undefined,
     });
 
