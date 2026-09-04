@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { createCheckoutSession } from "@/app/actions";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
@@ -15,7 +15,6 @@ const ANNUAL_SAVINGS_PERCENT = Math.round(
 );
 
 export function PricingCards() {
-  const router = useRouter();
   const [annual, setAnnual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,20 +26,32 @@ export function PricingCards() {
     try {
       const { data: session } = await authClient.getSession();
 
-      if (!session) {
-        router.push("/sign-in");
-        return;
-      }
+      if (session) {
+        // Authenticated: use the better-auth plugin's upgrade endpoint
+        const { error: checkoutError } = await authClient.subscription.upgrade({
+          plan: "premium",
+          annual,
+          successUrl: "/account",
+          cancelUrl: "/pricing",
+        });
 
-      const { error: checkoutError } = await authClient.subscription.upgrade({
-        plan: "premium",
-        annual,
-        successUrl: "/account",
-        cancelUrl: "/pricing",
-      });
+        if (checkoutError) {
+          setError(
+            checkoutError.message ?? "Checkout failed. Please try again.",
+          );
+        }
+      } else {
+        // Guest: create a Stripe Checkout Session directly — no account needed
+        const result = await createCheckoutSession({
+          plan: "premium",
+          annual,
+        });
 
-      if (checkoutError) {
-        setError(checkoutError.message ?? "Checkout failed. Please try again.");
+        if ("url" in result) {
+          window.location.href = result.url;
+        } else {
+          setError(result.error);
+        }
       }
     } catch {
       setError("Something went wrong. Please try again.");
