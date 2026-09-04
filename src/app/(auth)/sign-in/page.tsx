@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Container } from "@/components/ui/container";
 import { AuthForm } from "@/components/auth/auth-form";
+import { ForgotPassword } from "@/components/auth/forgot-password";
 import { generatePageMetadata } from "@/lib/metadata";
 
 export const metadata = generatePageMetadata({
@@ -21,6 +23,9 @@ export default function SignInPage() {
           <div className="mt-6">
             <AuthForm mode="sign-in" />
           </div>
+          <Suspense>
+            <ForgotPassword />
+          </Suspense>
           <p className="mt-6 text-center text-sm text-text-secondary">
             Don&apos;t have an account?{" "}
             <Link

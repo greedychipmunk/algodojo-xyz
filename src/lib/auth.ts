@@ -3,6 +3,7 @@ import { nextCookies } from "better-auth/next-js";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { stripe } from "@better-auth/stripe";
 import Stripe from "stripe";
+import { sendPasswordResetEmail } from "@/lib/email";
 
 const dbUrl = process.env.TURSO_DATABASE_URL || "file:local.db";
 const dbAuthToken = process.env.TURSO_AUTH_TOKEN;
@@ -33,6 +34,9 @@ export const auth = betterAuth({
   trustedOrigins: ["http://localhost:3000"],
   emailAndPassword: {
     enabled: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, url);
+    },
   },
   plugins: [
     nextCookies(),

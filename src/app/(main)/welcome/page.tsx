@@ -2,6 +2,8 @@ import Link from "next/link";
 import type Stripe from "stripe";
 import { Container } from "@/components/ui/container";
 import { stripe } from "@/lib/stripe";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { generatePageMetadata } from "@/lib/metadata";
 
 export const metadata = generatePageMetadata({
@@ -23,6 +25,7 @@ export default async function WelcomePage({
   const sessionId = params.session_id;
 
   let email: string | null = null;
+  let resetSent = false;
 
   if (sessionId && stripe) {
     try {
@@ -31,6 +34,22 @@ export default async function WelcomePage({
       });
       const customer = session.customer as Stripe.Customer | null;
       email = customer?.email ?? null;
+
+      // Auto-send password reset email so the user can set their password
+      if (email) {
+        try {
+          await auth.api.requestPasswordReset({
+            body: {
+              email,
+              redirectTo: "/reset-password",
+            },
+            headers: await headers(),
+          });
+          resetSent = true;
+        } catch (err) {
+          console.error("Failed to send password reset email:", err);
+        }
+      }
     } catch {
       // Session ID invalid or Stripe not reachable — still show the page
     }
@@ -70,7 +89,18 @@ export default async function WelcomePage({
             .
           </p>
 
-          {email && (
+          {resetSent && email && (
+            <div className="mt-6 rounded-lg border border-border bg-bg-secondary p-4 text-left">
+              <p className="text-xs text-text-secondary">
+                We&apos;ve sent a link to{" "}
+                <span className="font-medium text-text-primary">{email}</span>{" "}
+                so you can set your password. Check your inbox (and spam
+                folder).
+              </p>
+            </div>
+          )}
+
+          {!resetSent && email && (
             <div className="mt-6 rounded-lg border border-border bg-bg-secondary p-4 text-left">
               <p className="text-xs text-text-secondary">
                 You&apos;ll need to set a password to sign in. Use the
