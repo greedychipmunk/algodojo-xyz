@@ -1,4 +1,8 @@
-import Link from "next/link";
+"use client";
+
+import { useState } from "react";
+import { authClient } from "@/lib/auth-client";
+import { createCheckoutSession } from "@/app/actions";
 
 interface PaywallProps {
   tutorialTitle: string;
@@ -11,6 +15,48 @@ export function Paywall({
   tutorialSlug,
   isAuthenticated,
 }: PaywallProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubscribe() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (isAuthenticated) {
+        const { error: checkoutError } =
+          await authClient.subscription.upgrade({
+            plan: "premium",
+            annual: false,
+            successUrl: `/tutorials/${tutorialSlug}`,
+            cancelUrl: `/tutorials/${tutorialSlug}`,
+          });
+
+        if (checkoutError) {
+          setError(
+            checkoutError.message ?? "Checkout failed. Please try again.",
+          );
+        }
+      } else {
+        const result = await createCheckoutSession({
+          plan: "premium",
+          annual: false,
+          tutorialSlug,
+        });
+
+        if ("url" in result) {
+          window.location.href = result.url;
+        } else {
+          setError(result.error);
+        }
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="mt-12 rounded-xl border border-border bg-bg-card p-8 text-center shadow-card">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10">
@@ -37,21 +83,17 @@ export function Paywall({
         all-access plan to unlock this tutorial and every other premium
         tutorial on the site.
       </p>
-      <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <Link
-          href={`/pricing?tutorial=${tutorialSlug}`}
-          className="inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+      {error && (
+        <p className="mt-4 text-sm text-error">{error}</p>
+      )}
+      <div className="mt-6">
+        <button
+          onClick={handleSubscribe}
+          disabled={loading}
+          className="inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary disabled:cursor-not-allowed disabled:opacity-60"
         >
-          View Pricing
-        </Link>
-        {!isAuthenticated && (
-          <Link
-            href="/sign-in"
-            className="inline-flex items-center justify-center rounded-lg border border-border bg-bg-secondary px-5 py-2.5 text-sm font-semibold text-text-primary transition-colors hover:border-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
-          >
-            Sign In
-          </Link>
-        )}
+          {loading ? "Redirecting…" : "Subscribe to Unlock"}
+        </button>
       </div>
     </div>
   );
