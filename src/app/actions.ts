@@ -71,7 +71,7 @@ export async function createCheckoutSession(opts: {
 
     const session = await stripe.checkout.sessions.create({
       mode: isLifetime ? "payment" : "subscription",
-      line_items: [{ price: priceId }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/welcome?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/pricing`,
       metadata: {
@@ -98,7 +98,8 @@ export async function createCheckoutSession(opts: {
     }
 
     return { url: session.url };
-  } catch {
+  } catch (err) {
+    console.error("Stripe checkout error:", err);
     return { error: "Failed to start checkout. Please try again." };
   }
 }
