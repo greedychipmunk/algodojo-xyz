@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,7 @@ const ANNUAL_SAVINGS_PERCENT = Math.round(
 );
 
 export function PricingCards() {
+  const router = useRouter();
   const [annual, setAnnual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,13 @@ export function PricingCards() {
     setLoading(true);
 
     try {
+      const { data: session } = await authClient.getSession();
+
+      if (!session) {
+        router.push("/sign-in");
+        return;
+      }
+
       const { error: checkoutError } = await authClient.subscription.upgrade({
         plan: "premium",
         annual,
