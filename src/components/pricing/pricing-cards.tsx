@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { createCheckoutSession } from "@/app/actions";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 const MONTHLY_PRICE = 9;
 const ANNUAL_PRICE = 79;
@@ -13,28 +15,22 @@ const ANNUAL_SAVINGS_PERCENT = Math.round(
   (1 - ANNUAL_PRICE / (MONTHLY_PRICE * 12)) * 100,
 );
 
-type Billing = "monthly" | "annual" | "lifetime";
-
 export function PricingCards() {
-  const [billing, setBilling] = useState<Billing>("monthly");
+  const [annual, setAnnual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isLifetime = billing === "lifetime";
-  const isAnnual = billing === "annual";
-
-  async function handleCheckout() {
+  async function handleSubscribe() {
     setError(null);
     setLoading(true);
 
     try {
       const { data: session } = await authClient.getSession();
 
-      if (session && !isLifetime) {
-        // Authenticated + recurring: use the better-auth plugin's upgrade endpoint
+      if (session) {
         const { error: checkoutError } = await authClient.subscription.upgrade({
           plan: "premium",
-          annual: isAnnual,
+          annual,
           successUrl: "/account",
           cancelUrl: "/pricing",
         });
@@ -45,11 +41,9 @@ export function PricingCards() {
           );
         }
       } else {
-        // Guest or lifetime: create a Stripe Checkout Session directly
         const result = await createCheckoutSession({
           plan: "premium",
-          annual: isAnnual,
-          lifetime: isLifetime,
+          annual,
         });
 
         if ("url" in result) {
@@ -65,27 +59,56 @@ export function PricingCards() {
     }
   }
 
+  async function handleLifetimePurchase() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await createCheckoutSession({
+        plan: "premium",
+        annual: false,
+        lifetime: true,
+      });
+
+      if ("url" in result) {
+        window.location.href = result.url;
+      } else {
+        setError(result.error);
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div>
-      {/* Billing toggle */}
-      <div className="mx-auto mb-10 flex w-fit items-center gap-1 rounded-lg border border-border bg-bg-secondary p-1">
-        {(["monthly", "annual", "lifetime"] as const).map((option) => (
-          <button
-            key={option}
-            onClick={() => setBilling(option)}
-            disabled={loading}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize transition-colors disabled:cursor-not-allowed ${
-              billing === option
-                ? "bg-accent text-bg-primary"
-                : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {option}
-          </button>
-        ))}
+      {/* Billing toggle — only applies to Premium card */}
+      <div className="mx-auto mb-10 flex w-fit items-center gap-3">
+        <span
+          className={`text-sm font-medium ${!annual ? "text-text-primary" : "text-text-secondary"}`}
+        >
+          Monthly
+        </span>
+        <Switch
+          checked={annual}
+          onCheckedChange={setAnnual}
+          disabled={loading}
+          size="lg"
+          aria-label="Toggle annual billing"
+        />
+        <span
+          className={`text-sm font-medium ${annual ? "text-text-primary" : "text-text-secondary"}`}
+        >
+          Annual
+        </span>
+        <Badge variant="accent" size="sm">
+          Save ~{ANNUAL_SAVINGS_PERCENT}%
+        </Badge>
       </div>
 
-      <div className="grid gap-8 sm:grid-cols-2">
+      <div className="grid gap-8 lg:grid-cols-3">
         {/* Free tier */}
         <div className="flex flex-col rounded-xl border border-border bg-bg-card p-8 shadow-card">
           <h2 className="text-lg font-semibold">Free</h2>
@@ -120,16 +143,14 @@ export function PricingCards() {
           </p>
           <div className="mt-6 flex items-baseline gap-1">
             <p className="text-4xl font-bold">
-              ${isLifetime ? LIFETIME_PRICE : isAnnual ? ANNUAL_PRICE : MONTHLY_PRICE}
+              ${annual ? ANNUAL_PRICE : MONTHLY_PRICE}
             </p>
             <p className="text-sm text-text-secondary">
-              {isLifetime ? "once" : isAnnual ? "/year" : "/month"}
+              {annual ? "/year" : "/month"}
             </p>
           </div>
           <p
-            className={`mt-1 text-xs text-text-secondary ${
-              isAnnual ? "visible" : "invisible"
-            }`}
+            className={`mt-1 text-xs text-text-secondary ${annual ? "visible" : "invisible"}`}
           >
             ≈ ${ANNUAL_MONTHLY_EQUIVALENT}/month, billed annually
           </p>
@@ -137,22 +158,51 @@ export function PricingCards() {
             <li>Access to all premium tutorials</li>
             <li>Unlock every future tutorial</li>
             <li>No ads, no distractions</li>
-            {isLifetime ? (
-              <li>Pay once, access forever</li>
-            ) : (
-              <li>Cancel anytime</li>
-            )}
+            <li>Cancel anytime</li>
           </ul>
-          {error && (
+          {error && !loading && (
             <p className="mt-4 text-sm text-error">{error}</p>
           )}
           <div className="mt-auto pt-8">
             <button
-              onClick={handleCheckout}
+              onClick={handleSubscribe}
               disabled={loading}
               className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Redirecting…" : isLifetime ? "Buy Lifetime" : "Subscribe"}
+              {loading ? "Redirecting…" : "Subscribe"}
+            </button>
+          </div>
+        </div>
+
+        {/* Lifetime tier */}
+        <div className="flex flex-col rounded-xl border border-border bg-bg-card p-8 shadow-card">
+          <h2 className="text-lg font-semibold">Lifetime</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            Pay once, access forever.
+          </p>
+          <div className="mt-6 flex items-baseline gap-1">
+            <p className="text-4xl font-bold">${LIFETIME_PRICE}</p>
+            <p className="text-sm text-text-secondary">once</p>
+          </div>
+          <p className="mt-1 text-xs text-text-secondary">
+            One-time payment, no recurring charges
+          </p>
+          <ul className="mt-8 space-y-3 text-sm text-text-secondary">
+            <li>Access to all premium tutorials</li>
+            <li>Unlock every future tutorial</li>
+            <li>No ads, no distractions</li>
+            <li>No subscription to cancel</li>
+          </ul>
+          {error && !loading && (
+            <p className="mt-4 text-sm text-error">{error}</p>
+          )}
+          <div className="mt-auto pt-8">
+            <button
+              onClick={handleLifetimePurchase}
+              disabled={loading}
+              className="inline-flex w-full items-center justify-center rounded-lg border-2 border-accent bg-bg-card px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent hover:text-bg-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Redirecting…" : "Buy Lifetime"}
             </button>
           </div>
         </div>
