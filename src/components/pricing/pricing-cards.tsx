@@ -62,6 +62,7 @@ export function PricingCards() {
           checked={annual}
           onCheckedChange={setAnnual}
           disabled={loading}
+          size="lg"
           aria-label="Toggle annual billing"
         />
         <span
