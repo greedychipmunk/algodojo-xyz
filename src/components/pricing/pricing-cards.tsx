@@ -4,20 +4,24 @@ import Link from "next/link";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { createCheckoutSession } from "@/app/actions";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 
 const MONTHLY_PRICE = 9;
 const ANNUAL_PRICE = 79;
+const LIFETIME_PRICE = 149;
 const ANNUAL_MONTHLY_EQUIVALENT = (ANNUAL_PRICE / 12).toFixed(2);
 const ANNUAL_SAVINGS_PERCENT = Math.round(
   (1 - ANNUAL_PRICE / (MONTHLY_PRICE * 12)) * 100,
 );
 
+type Billing = "monthly" | "annual" | "lifetime";
+
 export function PricingCards() {
-  const [annual, setAnnual] = useState(false);
+  const [billing, setBilling] = useState<Billing>("monthly");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isLifetime = billing === "lifetime";
+  const isAnnual = billing === "annual";
 
   async function handleCheckout() {
     setError(null);
@@ -26,11 +30,11 @@ export function PricingCards() {
     try {
       const { data: session } = await authClient.getSession();
 
-      if (session) {
-        // Authenticated: use the better-auth plugin's upgrade endpoint
+      if (session && !isLifetime) {
+        // Authenticated + recurring: use the better-auth plugin's upgrade endpoint
         const { error: checkoutError } = await authClient.subscription.upgrade({
           plan: "premium",
-          annual,
+          annual: isAnnual,
           successUrl: "/account",
           cancelUrl: "/pricing",
         });
@@ -41,10 +45,11 @@ export function PricingCards() {
           );
         }
       } else {
-        // Guest: create a Stripe Checkout Session directly — no account needed
+        // Guest or lifetime: create a Stripe Checkout Session directly
         const result = await createCheckoutSession({
           plan: "premium",
-          annual,
+          annual: isAnnual,
+          lifetime: isLifetime,
         });
 
         if ("url" in result) {
@@ -63,27 +68,21 @@ export function PricingCards() {
   return (
     <div>
       {/* Billing toggle */}
-      <div className="mx-auto mb-10 flex w-fit items-center gap-3">
-        <span
-          className={`text-sm font-medium ${!annual ? "text-text-primary" : "text-text-secondary"}`}
-        >
-          Monthly
-        </span>
-        <Switch
-          checked={annual}
-          onCheckedChange={setAnnual}
-          disabled={loading}
-          size="lg"
-          aria-label="Toggle annual billing"
-        />
-        <span
-          className={`text-sm font-medium ${annual ? "text-text-primary" : "text-text-secondary"}`}
-        >
-          Annual
-        </span>
-        <Badge variant="accent" size="sm">
-          Save ~{ANNUAL_SAVINGS_PERCENT}%
-        </Badge>
+      <div className="mx-auto mb-10 flex w-fit items-center gap-1 rounded-lg border border-border bg-bg-secondary p-1">
+        {(["monthly", "annual", "lifetime"] as const).map((option) => (
+          <button
+            key={option}
+            onClick={() => setBilling(option)}
+            disabled={loading}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize transition-colors disabled:cursor-not-allowed ${
+              billing === option
+                ? "bg-accent text-bg-primary"
+                : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {option}
+          </button>
+        ))}
       </div>
 
       <div className="grid gap-8 sm:grid-cols-2">
@@ -121,14 +120,16 @@ export function PricingCards() {
           </p>
           <div className="mt-6 flex items-baseline gap-1">
             <p className="text-4xl font-bold">
-              ${annual ? ANNUAL_PRICE : MONTHLY_PRICE}
+              ${isLifetime ? LIFETIME_PRICE : isAnnual ? ANNUAL_PRICE : MONTHLY_PRICE}
             </p>
             <p className="text-sm text-text-secondary">
-              {annual ? "/year" : "/month"}
+              {isLifetime ? "once" : isAnnual ? "/year" : "/month"}
             </p>
           </div>
           <p
-            className={`mt-1 text-xs text-text-secondary ${annual ? "visible" : "invisible"}`}
+            className={`mt-1 text-xs text-text-secondary ${
+              isAnnual ? "visible" : "invisible"
+            }`}
           >
             ≈ ${ANNUAL_MONTHLY_EQUIVALENT}/month, billed annually
           </p>
@@ -136,7 +137,11 @@ export function PricingCards() {
             <li>Access to all premium tutorials</li>
             <li>Unlock every future tutorial</li>
             <li>No ads, no distractions</li>
-            <li>Cancel anytime</li>
+            {isLifetime ? (
+              <li>Pay once, access forever</li>
+            ) : (
+              <li>Cancel anytime</li>
+            )}
           </ul>
           {error && (
             <p className="mt-4 text-sm text-error">{error}</p>
@@ -147,7 +152,7 @@ export function PricingCards() {
               disabled={loading}
               className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg-primary transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Redirecting…" : "Subscribe"}
+              {loading ? "Redirecting…" : isLifetime ? "Buy Lifetime" : "Subscribe"}
             </button>
           </div>
         </div>

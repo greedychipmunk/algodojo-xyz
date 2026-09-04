@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { stripe, PREMIUM_PRICE_ID, PREMIUM_ANNUAL_PRICE_ID } from "@/lib/stripe";
+import { stripe, PREMIUM_PRICE_ID, PREMIUM_ANNUAL_PRICE_ID, PREMIUM_LIFETIME_PRICE_ID } from "@/lib/stripe";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { Kysely, sql } from "kysely";
@@ -122,16 +122,12 @@ interface SubscriptionRow {
  */
 async function handleCheckoutCompleted(event: Stripe.Event) {
   const checkoutSession = event.data.object as Stripe.Checkout.Session;
-  if (checkoutSession.mode !== "subscription") return;
+  if (checkoutSession.mode !== "subscription" && checkoutSession.mode !== "payment") return;
 
   const metadata = checkoutSession.metadata || {};
   const isGuestCheckout = metadata.guest_checkout === "true";
+  const isLifetime = metadata.lifetime === "true";
   const customerId = checkoutSession.customer as string;
-
-  // Retrieve the subscription to get full details
-  const subscription = await stripe!.subscriptions.retrieve(
-    checkoutSession.subscription as string,
-  );
 
   const planName = metadata.plan || "premium";
 
@@ -190,6 +186,72 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
     );
     return;
   }
+
+  if (isLifetime) {
+    await recordLifetimePurchase(checkoutSession, userId, customerId, planName);
+  } else {
+    await recordSubscription(checkoutSession, userId, customerId, planName);
+  }
+}
+
+/**
+ * Record a lifetime (one-time payment) purchase as an active subscription
+ * with billing_interval = "lifetime".
+ */
+async function recordLifetimePurchase(
+  checkoutSession: Stripe.Checkout.Session,
+  userId: string,
+  customerId: string,
+  planName: string,
+) {
+  const now = new Date().toISOString();
+  // Use the checkout session ID as the unique identifier since there's
+  // no Stripe subscription object for one-time payments.
+  const recordId = checkoutSession.id;
+
+  const existingSub = await sql<SubscriptionRow>`SELECT id FROM subscription WHERE stripe_subscription_id = ${recordId}`.execute(db);
+
+  if (existingSub.rows.length > 0) {
+    await sql`UPDATE subscription SET
+      plan = ${planName},
+      status = 'active',
+      stripe_customer_id = ${customerId},
+      billing_interval = 'lifetime',
+      updated_at = ${now}
+    WHERE stripe_subscription_id = ${recordId}`.execute(db);
+  } else {
+    await sql`INSERT INTO subscription (
+      id, plan, status, stripe_customer_id, stripe_subscription_id,
+      reference_id, billing_interval,
+      seats, created_at, updated_at
+    ) VALUES (
+      ${crypto.randomUUID()},
+      ${planName},
+      'active',
+      ${customerId},
+      ${recordId},
+      ${userId},
+      'lifetime',
+      1,
+      ${now},
+      ${now}
+    )`.execute(db);
+  }
+}
+
+/**
+ * Record a recurring subscription from a checkout session.
+ */
+async function recordSubscription(
+  checkoutSession: Stripe.Checkout.Session,
+  userId: string,
+  customerId: string,
+  planName: string,
+) {
+  // Retrieve the subscription to get full details
+  const subscription = await stripe!.subscriptions.retrieve(
+    checkoutSession.subscription as string,
+  );
 
   const subItem = subscription.items.data[0];
   const periodStart = new Date(subItem.current_period_start * 1000).toISOString();

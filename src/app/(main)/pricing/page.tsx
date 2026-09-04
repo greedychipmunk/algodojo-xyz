@@ -19,7 +19,7 @@ export default function PricingPage() {
           </h1>
           <p className="mt-4 text-lg text-text-secondary">
             Free tutorials are always free. Upgrade to premium for unlimited
-            access to every tutorial on the site.
+            access to every tutorial on the site — monthly, annual, or lifetime.
           </p>
         </div>
 
