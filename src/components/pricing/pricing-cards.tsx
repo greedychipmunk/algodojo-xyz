@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 const MONTHLY_PRICE = 9;
 const ANNUAL_PRICE = 79;
@@ -47,27 +49,20 @@ export function PricingCards() {
         >
           Monthly
         </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={annual}
-          aria-label="Toggle annual billing"
+        <Switch
+          checked={annual}
+          onCheckedChange={setAnnual}
           disabled={loading}
-          onClick={() => setAnnual((a) => !a)}
-          className="relative h-6 w-11 rounded-full border border-border bg-bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-accent transition-transform ${annual ? "translate-x-6" : "translate-x-1"}`}
-          />
-        </button>
+          aria-label="Toggle annual billing"
+        />
         <span
           className={`text-sm font-medium ${annual ? "text-text-primary" : "text-text-secondary"}`}
         >
           Annual
         </span>
-        <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+        <Badge variant="accent" size="sm">
           Save ~{ANNUAL_SAVINGS_PERCENT}%
-        </span>
+        </Badge>
       </div>
 
       <div className="grid gap-8 sm:grid-cols-2">
