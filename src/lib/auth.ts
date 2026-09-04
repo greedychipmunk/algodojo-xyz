@@ -7,9 +7,16 @@ import Stripe from "stripe";
 const dbUrl = process.env.TURSO_DATABASE_URL || "file:local.db";
 const dbAuthToken = process.env.TURSO_AUTH_TOKEN;
 
-export const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-12-18.acacia" as Stripe.LatestApiVersion,
-});
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+
+// Only initialize Stripe when the secret key is available.
+// This prevents build-time crashes when env vars aren't set
+// (e.g. Vercel preview deploys missing environment configuration).
+const stripeClient = stripeSecretKey
+  ? new Stripe(stripeSecretKey, {
+      apiVersion: "2025-12-18.acacia" as Stripe.LatestApiVersion,
+    })
+  : undefined;
 
 export const auth = betterAuth({
   database: {
@@ -31,21 +38,25 @@ export const auth = betterAuth({
   },
   plugins: [
     nextCookies(),
-    stripe({
-      stripeClient,
-      stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
-      createCustomerOnSignUp: true,
-      subscription: {
-        enabled: true,
-        plans: [
-          {
-            name: "premium",
-            priceId: process.env.STRIPE_PREMIUM_PRICE_ID || "",
-            annualDiscountPriceId:
-              process.env.STRIPE_PREMIUM_ANNUAL_PRICE_ID || "",
-          },
-        ],
-      },
-    }),
+    ...(stripeClient
+      ? [
+          stripe({
+            stripeClient,
+            stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
+            createCustomerOnSignUp: true,
+            subscription: {
+              enabled: true,
+              plans: [
+                {
+                  name: "premium",
+                  priceId: process.env.STRIPE_PREMIUM_PRICE_ID || "",
+                  annualDiscountPriceId:
+                    process.env.STRIPE_PREMIUM_ANNUAL_PRICE_ID || "",
+                },
+              ],
+            },
+          }),
+        ]
+      : []),
   ],
 });
