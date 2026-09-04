@@ -27,6 +27,7 @@ Built with Next.js 16 (App Router), TypeScript, and Tailwind CSS v4. Features a 
 - **Content:** MDX via `next-mdx-remote` + `gray-matter`
 - **Auth:** Better Auth (email/password, self-hosted)
 - **Payments:** Stripe via `@better-auth/stripe`
+- **Email:** Resend (password reset emails)
 - **Database:** Turso (libSQL/SQLite) via Kysely
 - **Fonts:** Geist Sans & Geist Mono (self-hosted via `geist` package)
 - **Linting:** ESLint 9 + Prettier
@@ -146,6 +147,8 @@ cp .env.example .env.local
 | `STRIPE_SECRET_KEY` | Stripe API secret key (from Stripe dashboard) |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (from Stripe webhook settings) |
 | `STRIPE_PREMIUM_PRICE_ID` | Stripe price ID for the premium subscription plan |
+| `RESEND_API_KEY` | Resend API key (from Resend dashboard) |
+| `RESEND_FROM_EMAIL` | From address for transactional emails (e.g., `noreply@algodojo.xyz`) |
 
 ## Authentication & Payments Setup
 
@@ -207,6 +210,18 @@ npx @better-auth/cli migrate
 For production, set these in your hosting provider's environment variables:
 
 - `BETTER_AUTH_URL` → your production URL (e.g., `https://algodojo.xyz`)
+
+### 7. Set Up Resend (Email)
+
+Resend handles transactional emails — specifically password reset emails triggered by Better Auth's `sendResetPassword` callback.
+
+1. Sign up at [Resend](https://resend.com)
+2. Verify your domain (e.g., `algodojo.xyz`) by adding the DNS records Resend provides. See the [Resend domain guide](https://resend.com/docs/dashboard/domains) for details.
+3. Once verified, go to **API Keys** and create a new API key with full access
+4. Copy the API key and set `RESEND_API_KEY` in `.env.local`
+5. Set `RESEND_FROM_EMAIL` to your sender address (e.g., `noreply@algodojo.xyz`)
+
+> **Local development:** If you skip Resend setup, the app still runs — password reset URLs are logged to the server console instead of being emailed. This is handled gracefully in `src/lib/email.ts`.
 
 ### How Content Gating Works
 
