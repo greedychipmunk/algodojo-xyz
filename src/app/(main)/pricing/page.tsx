@@ -23,7 +23,7 @@ export default function PricingPage() {
           </p>
         </div>
 
-        <div className="mx-auto mt-16 max-w-4xl">
+        <div className="mx-auto mt-16 max-w-6xl">
           <PricingCards />
         </div>
 
