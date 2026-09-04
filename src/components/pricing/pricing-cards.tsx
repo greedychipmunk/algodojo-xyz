@@ -106,11 +106,11 @@ export function PricingCards() {
               {annual ? "/year" : "/month"}
             </p>
           </div>
-          {annual && (
-            <p className="mt-1 text-xs text-text-secondary">
-              ≈ ${ANNUAL_MONTHLY_EQUIVALENT}/month, billed annually
-            </p>
-          )}
+          <p
+            className={`mt-1 text-xs text-text-secondary ${annual ? "visible" : "invisible"}`}
+          >
+            ≈ ${ANNUAL_MONTHLY_EQUIVALENT}/month, billed annually
+          </p>
           <ul className="mt-8 space-y-3 text-sm text-text-secondary">
             <li>Access to all premium tutorials</li>
             <li>Unlock every future tutorial</li>
