@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
+const MONTHLY_PRICE = 9;
+const ANNUAL_PRICE = 79;
+const ANNUAL_MONTHLY_EQUIVALENT = (ANNUAL_PRICE / 12).toFixed(2);
+const ANNUAL_SAVINGS_PERCENT = Math.round(
+  (1 - ANNUAL_PRICE / (MONTHLY_PRICE * 12)) * 100,
+);
+
 export function PricingCards() {
   const [annual, setAnnual] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,13 +52,12 @@ export function PricingCards() {
           role="switch"
           aria-checked={annual}
           aria-label="Toggle annual billing"
+          disabled={loading}
           onClick={() => setAnnual((a) => !a)}
-          className="relative h-6 w-11 rounded-full border border-border bg-bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+          className="relative h-6 w-11 rounded-full border border-border bg-bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-accent transition-transform ${
-              annual ? "translate-x-6" : "translate-x-1"
-            }`}
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-accent transition-transform ${annual ? "translate-x-6" : "translate-x-1"}`}
           />
         </button>
         <span
@@ -60,7 +66,7 @@ export function PricingCards() {
           Annual
         </span>
         <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
-          Save ~27%
+          Save ~{ANNUAL_SAVINGS_PERCENT}%
         </span>
       </div>
 
@@ -98,14 +104,16 @@ export function PricingCards() {
             Unlock every tutorial on Algo Dojo.
           </p>
           <div className="mt-6 flex items-baseline gap-1">
-            <p className="text-4xl font-bold">${annual ? "79" : "9"}</p>
+            <p className="text-4xl font-bold">
+              ${annual ? ANNUAL_PRICE : MONTHLY_PRICE}
+            </p>
             <p className="text-sm text-text-secondary">
               {annual ? "/year" : "/month"}
             </p>
           </div>
           {annual && (
             <p className="mt-1 text-xs text-text-secondary">
-              ≈ $6.58/month, billed annually
+              ≈ ${ANNUAL_MONTHLY_EQUIVALENT}/month, billed annually
             </p>
           )}
           <ul className="mt-8 space-y-3 text-sm text-text-secondary">
